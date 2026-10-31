@@ -2,9 +2,11 @@ package com.itemmanagement.service;
 
 import com.itemmanagement.dto.master.BranchResponse;
 import com.itemmanagement.entity.Branch;
+import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchRepository;
+import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,7 @@ import java.util.Locale;
 public class BranchService {
 
     private final BranchRepository branchRepository;
+    private final StoreRepository storeRepository;
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
@@ -51,6 +54,12 @@ public class BranchService {
     @Transactional
     public BranchResponse create(BranchResponse.Request request) {
         Long storeId = TenantContext.storeId();
+        // Locks the store row so concurrent creates cannot both pass the limit check.
+        Store store = storeRepository.findByIdForUpdate(storeId)
+                .orElseThrow(() -> ApiException.notFound("Store not found"));
+        if (branchRepository.countByStoreId(storeId) >= store.getMaxBranches()) {
+            throw ApiException.conflict(SubscriptionService.MAX_BRANCH_MESSAGE);
+        }
         String code = request.branchCode().trim().toUpperCase(Locale.ROOT);
         if (branchRepository.existsByStoreIdAndBranchCodeIgnoreCase(storeId, code)) {
             throw ApiException.conflict("Branch code already exists in this store");

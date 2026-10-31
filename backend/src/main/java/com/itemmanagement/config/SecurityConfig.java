@@ -2,6 +2,7 @@ package com.itemmanagement.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.itemmanagement.security.JwtAuthFilter;
+import com.itemmanagement.security.SubscriptionAccessFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +34,7 @@ import java.util.Map;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final SubscriptionAccessFilter subscriptionAccessFilter;
     private final ObjectMapper objectMapper;
 
     @Value("${app.cors.allowed-origins}")
@@ -52,7 +54,8 @@ public class SecurityConfig {
                                 writeError(response, 401, "Authentication required"))
                         .accessDeniedHandler((request, response, ex) ->
                                 writeError(response, 403, "You do not have permission to perform this action")))
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(subscriptionAccessFilter, JwtAuthFilter.class);
         return http.build();
     }
 

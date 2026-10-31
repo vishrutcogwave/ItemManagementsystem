@@ -17,6 +17,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Locale;
 
 @Service
@@ -101,12 +103,18 @@ public class StoreService {
     }
 
     private StoreResponse toResponse(Store store) {
+        long branchCount = branchRepository.countByStoreId(store.getId());
         return new StoreResponse(
                 store.getId(), store.getStoreCode(), store.getStoreName(), store.getOwnerName(),
                 store.getEmail(), store.getMobile(), store.getAddress(), store.getGstNumber(),
                 store.isTaxInclusive(), store.getStatus().name(), store.getCreatedAt(),
-                branchRepository.countByStoreId(store.getId()),
-                userRepository.countByStoreId(store.getId())
+                branchCount,
+                userRepository.countByStoreId(store.getId()),
+                store.getSubscriptionStartDate(),
+                store.getSubscriptionEndDate(),
+                store.getMaxBranches(),
+                Math.max(0, store.getMaxBranches() - branchCount),
+                store.getSubscriptionEndDate().isBefore(LocalDate.now(ZoneOffset.UTC))
         );
     }
 

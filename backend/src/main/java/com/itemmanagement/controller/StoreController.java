@@ -4,13 +4,19 @@ import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.dto.common.StatusRequest;
 import com.itemmanagement.dto.master.StoreResponse;
 import com.itemmanagement.dto.master.UpdateStoreRequest;
+import com.itemmanagement.dto.subscription.SubscriptionHistoryResponse;
+import com.itemmanagement.dto.subscription.SubscriptionRequest;
+import com.itemmanagement.dto.subscription.SubscriptionSummaryResponse;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.service.StoreService;
+import com.itemmanagement.service.SubscriptionService;
 import com.itemmanagement.util.PageResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/stores")
@@ -18,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 public class StoreController {
 
     private final StoreService storeService;
+    private final SubscriptionService subscriptionService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
@@ -62,5 +69,24 @@ public class StoreController {
     @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
     public StoreResponse updateStatus(@PathVariable Long id, @Valid @RequestBody StatusRequest request) {
         return storeService.updateStatus(id, request.status());
+    }
+
+    @GetMapping("/{id}/subscription")
+    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    public SubscriptionSummaryResponse subscription(@PathVariable Long id) {
+        return subscriptionService.platformStoreSummary(id);
+    }
+
+    @PutMapping("/{id}/subscription")
+    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    public SubscriptionSummaryResponse updateSubscription(@PathVariable Long id,
+                                                          @Valid @RequestBody SubscriptionRequest request) {
+        return subscriptionService.updateForPlatform(id, request);
+    }
+
+    @GetMapping("/{id}/subscription/history")
+    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    public List<SubscriptionHistoryResponse> subscriptionHistory(@PathVariable Long id) {
+        return subscriptionService.history(id);
     }
 }

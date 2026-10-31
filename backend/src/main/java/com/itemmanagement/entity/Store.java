@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 @Entity
 @Table(name = "stores")
@@ -47,6 +49,15 @@ public class Store {
     @Column(nullable = false, length = 20)
     private StoreStatus status;
 
+    @Column(name = "subscription_start_date", nullable = false)
+    private LocalDate subscriptionStartDate;
+
+    @Column(name = "subscription_end_date", nullable = false)
+    private LocalDate subscriptionEndDate;
+
+    @Column(name = "max_branches", nullable = false)
+    private int maxBranches;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -59,6 +70,9 @@ public class Store {
         createdAt = now;
         updatedAt = now;
         if (status == null) status = StoreStatus.ACTIVE;
+        if (subscriptionStartDate == null) subscriptionStartDate = LocalDate.now(ZoneOffset.UTC);
+        if (subscriptionEndDate == null) subscriptionEndDate = subscriptionStartDate.plusYears(1);
+        if (maxBranches < 1) maxBranches = 5;
     }
 
     @PreUpdate

@@ -1,5 +1,6 @@
-import { Boxes, Package, Pencil, Plus, Power } from 'lucide-react'
+import { Boxes, Download, History, Package, Pencil, Plus, Power, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -16,8 +17,10 @@ import {
   SearchInput,
   Select,
   StatusBadge,
+  Textarea,
   type Column,
 } from '../components/ui'
+import { ItemImportDialog } from '../components/imports/ItemImportDialog'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
@@ -39,6 +42,7 @@ import type {
 interface FormState {
   itemCode: string
   itemName: string
+  description: string
   categoryId: number | ''
   taxId: number | ''
   baseUnit: Unit
@@ -50,6 +54,7 @@ interface FormState {
 const emptyForm: FormState = {
   itemCode: '',
   itemName: '',
+  description: '',
   categoryId: '',
   taxId: '',
   baseUnit: 'PIECE',
@@ -61,7 +66,11 @@ const emptyForm: FormState = {
 export function ItemsPage() {
   const hasPermission = useAuthStore((state) => state.hasPermission)
   const canManage = hasPermission('ITEM_MANAGE')
+  const canImport = canManage && hasPermission('INVENTORY_ADJUST')
+  const navigate = useNavigate()
 
+  const [importOpen, setImportOpen] = useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [status, setStatus] = useState('')
@@ -131,6 +140,26 @@ export function ItemsPage() {
     }
   }, [stockItem])
 
+  const downloadTemplate = async () => {
+    setDownloadingTemplate(true)
+    try {
+      const response = await api.get('/item-imports/template', { responseType: 'blob' })
+      const url = URL.createObjectURL(response.data as Blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'item-import-template.xlsx'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+      notify('Excel template downloaded')
+    } catch (err) {
+      notify(errorMessage(err))
+    } finally {
+      setDownloadingTemplate(false)
+    }
+  }
+
   const openCreate = () => {
     setEditing(null)
     setForm({ ...emptyForm, categoryId: categories?.[0]?.id ?? '', taxId: defaultTaxId })
@@ -144,6 +173,7 @@ export function ItemsPage() {
     setForm({
       itemCode: item.itemCode,
       itemName: item.itemName,
+      description: item.description ?? '',
       categoryId: item.categoryId,
       taxId: item.taxId,
       baseUnit: item.baseUnit,
@@ -176,6 +206,7 @@ export function ItemsPage() {
       const payload: ItemRequest = {
         itemCode: form.itemCode.trim().toUpperCase(),
         itemName: form.itemName.trim(),
+        description: form.description.trim() || undefined,
         categoryId: form.categoryId,
         taxId: form.taxId,
         baseUnit: form.baseUnit,
@@ -290,11 +321,37 @@ export function ItemsPage() {
         title="Items"
         subtitle="Your product catalogue with a single POS rate and reorder levels."
         actions={
-          canManage ? (
-            <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-              Add item
+          <>
+            <Button
+              variant="outline"
+              icon={<Download className="h-4 w-4" />}
+              onClick={downloadTemplate}
+              loading={downloadingTemplate}
+            >
+              Excel template
             </Button>
-          ) : undefined
+            <Button
+              variant="outline"
+              icon={<History className="h-4 w-4" />}
+              onClick={() => navigate('/items/imports')}
+            >
+              Import history
+            </Button>
+            {canImport && (
+              <Button
+                variant="outline"
+                icon={<Upload className="h-4 w-4" />}
+                onClick={() => setImportOpen(true)}
+              >
+                Upload Excel
+              </Button>
+            )}
+            {canManage && (
+              <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+                Add item
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -412,6 +469,15 @@ export function ItemsPage() {
                 value={form.itemName}
                 onChange={(event) => setForm({ ...form, itemName: event.target.value })}
                 placeholder="Milk 500 ml"
+              />
+            </Field>
+            <Field label="Description" hint="Optional · shown in the Excel template" className="sm:col-span-2">
+              <Textarea
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                placeholder="Short product description"
+                maxLength={255}
+                className="min-h-9"
               />
             </Field>
             <Field label="Category" required error={formErrors.categoryId}>
@@ -585,6 +651,14 @@ export function ItemsPage() {
           </div>
         )}
       </Modal>
+
+      {importOpen && (
+        <ItemImportDialog
+          open
+          onClose={() => setImportOpen(false)}
+          onImported={reload}
+        />
+      )}
     </div>
   )
 }

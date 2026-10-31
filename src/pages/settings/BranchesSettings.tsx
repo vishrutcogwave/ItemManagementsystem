@@ -20,7 +20,10 @@ import { api, errorMessage, fieldErrorsOf } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { useAuthStore } from '../../store/auth'
 import { notify, notifyError } from '../../store/ui'
-import type { Branch } from '../../types'
+import type { Branch, SubscriptionSummary } from '../../types'
+
+const MAX_BRANCH_MESSAGE =
+  'You have reached your maximum branch limit. Please contact the Platform Administrator.'
 
 interface FormState {
   branchCode: string
@@ -51,6 +54,17 @@ export function BranchesSettings() {
         .then((response) => response.data),
     [canManage],
   )
+
+  const { data: subscription, reload: reloadSubscription } = useApi<SubscriptionSummary>(
+    () => api.get('/subscription/summary').then((response) => response.data),
+    [],
+  )
+
+  const atLimit = Boolean(subscription && subscription.remainingBranches <= 0)
+  const refreshAll = () => {
+    reload()
+    reloadSubscription()
+  }
 
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
@@ -124,10 +138,11 @@ export function BranchesSettings() {
         notify('Branch created')
       }
       setModalOpen(false)
-      reload()
+      refreshAll()
     } catch (err) {
       setFormError(errorMessage(err))
       setErrors(fieldErrorsOf(err))
+      reloadSubscription()
     } finally {
       setSaving(false)
     }
@@ -139,7 +154,7 @@ export function BranchesSettings() {
         status: branch.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
       })
       notify(branch.status === 'ACTIVE' ? 'Branch deactivated' : 'Branch activated')
-      reload()
+      refreshAll()
     } catch (err) {
       notifyError(errorMessage(err))
     }
@@ -199,14 +214,59 @@ export function BranchesSettings() {
 
   return (
     <div>
+      {subscription && (
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] font-semibold text-slate-500">Maximum branches</p>
+            <p className="mt-1 text-xl font-bold text-slate-900">{subscription.maxBranches}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] font-semibold text-slate-500">Existing branches</p>
+            <p className="mt-1 text-xl font-bold text-slate-900">{subscription.branchCount}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] font-semibold text-slate-500">Remaining branches</p>
+            <p className={`mt-1 text-xl font-bold ${atLimit ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {subscription.remainingBranches}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] font-semibold text-slate-500">Subscription ends</p>
+            <p className={`mt-1 text-sm font-bold ${subscription.expired ? 'text-rose-600' : 'text-slate-900'}`}>
+              {formatDate(subscription.endDate)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {atLimit && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700"
+        >
+          {MAX_BRANCH_MESSAGE}
+        </div>
+      )}
+
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <SearchInput className="sm:w-72" placeholder="Search branches…" value={search} onChange={(event) => setSearch(event.target.value)} />
             <Badge tone="slate">{rows.length} branches</Badge>
+            {subscription && (
+              <Badge tone={atLimit ? 'red' : 'blue'}>
+                {subscription.branchCount} / {subscription.maxBranches} allowed
+              </Badge>
+            )}
           </div>
           {canManage && (
-            <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+            <Button
+              size="sm"
+              icon={<Plus className="h-4 w-4" />}
+              onClick={openCreate}
+              disabled={atLimit}
+              title={atLimit ? MAX_BRANCH_MESSAGE : undefined}
+            >
               Add branch
             </Button>
           )}

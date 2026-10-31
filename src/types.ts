@@ -97,10 +97,88 @@ export interface CategoryRequest {
   status?: StoreStatus
 }
 
+export type ImportBatchStatus = 'PREVIEWED' | 'COMPLETED' | 'FAILED'
+export type ImportValidationStatus = 'VALID' | 'INVALID'
+export type ImportAction =
+  | 'NEW_ITEM'
+  | 'EXISTING_ITEM_OPENING_STOCK'
+  | 'EXISTING_ITEM_NO_STOCK'
+  | 'DUPLICATE_ROW'
+  | 'VALIDATION_ERROR'
+  | 'ALREADY_IMPORTED'
+
+export interface ImportSummary {
+  totalRows: number
+  newCategories: number
+  newItems: number
+  existingItems: number
+  stockUpdates: number
+  duplicateRows: number
+  invalidRows: number
+  alreadyImportedRows: number
+  importableRows: number
+}
+
+export interface ImportRow {
+  id: number
+  rowNumber: number
+  itemCode: string | null
+  itemName: string | null
+  categoryName: string | null
+  unit: string | null
+  rate: number | null
+  taxName: string | null
+  openingStock: number | null
+  minimumStock: number | null
+  description: string | null
+  itemId: number | null
+  importAction: ImportAction
+  validationStatus: ImportValidationStatus
+  errorMessage: string | null
+}
+
+export interface ImportPreview {
+  batchId: number
+  importNumber: string
+  fileName: string
+  branchId: number
+  branchName: string
+  status: ImportBatchStatus
+  createdAt: string
+  completedAt: string | null
+  failureMessage: string | null
+  summary: ImportSummary
+  rows: ImportRow[]
+}
+
+export interface ImportBatch {
+  batchId: number
+  importNumber: string
+  fileName: string
+  branchId: number
+  branchName: string
+  status: ImportBatchStatus
+  totalRows: number
+  successRows: number
+  failedRows: number
+  newCategories: number
+  newItems: number
+  existingItems: number
+  stockUpdates: number
+  duplicateRows: number
+  invalidRows: number
+  alreadyImportedRows: number
+  failureMessage: string | null
+  uploadedBy: string
+  createdAt: string
+  completedAt: string | null
+}
+
 export interface Item {
   id: number
   itemCode: string
   itemName: string
+  description: string | null
   categoryId: number
   categoryName: string
   taxId: number
@@ -117,6 +195,7 @@ export interface Item {
 export interface ItemRequest {
   itemCode: string
   itemName: string
+  description?: string
   categoryId: number | ''
   taxId: number | ''
   baseUnit: Unit
@@ -272,6 +351,53 @@ export interface Store {
   createdAt: string
   branchCount: number
   userCount: number
+  subscriptionStartDate: string
+  subscriptionEndDate: string
+  maxBranches: number
+  remainingBranches: number
+  subscriptionExpired: boolean
+}
+
+export interface SubscriptionSummary {
+  storeId: number
+  storeCode: string
+  storeName: string
+  startDate: string
+  endDate: string
+  daysRemaining: number
+  maxBranches: number
+  branchCount: number
+  remainingBranches: number
+  expired: boolean
+  platformContactEmail: string
+  platformContactPhone: string
+}
+
+export interface SubscriptionRequest {
+  startDate: string
+  endDate: string
+  maxBranches: number | ''
+  note?: string
+}
+
+export interface SubscriptionHistoryEntry {
+  id: number
+  changedAt: string
+  changedBy: number | null
+  changedByUsername: string | null
+  previousStartDate: string | null
+  newStartDate: string | null
+  previousEndDate: string | null
+  newEndDate: string | null
+  previousMaxBranches: number | null
+  newMaxBranches: number | null
+  note: string | null
+}
+
+export interface PlatformContact {
+  contactEmail: string
+  contactPhone: string
+  updatedAt: string | null
 }
 
 export interface UpdateStoreRequest {
@@ -725,5 +851,8 @@ export interface ApiErrorPayload {
   status: number
   error: string
   message: string
+  code?: string
+  contactEmail?: string
+  contactPhone?: string
   fieldErrors?: Record<string, string>
 }

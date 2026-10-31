@@ -1,6 +1,11 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.entity.Role;
+import com.itemmanagement.entity.User;
+import com.itemmanagement.entity.enums.StoreStatus;
+import com.itemmanagement.repository.RoleRepository;
+import com.itemmanagement.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,6 +16,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -18,6 +24,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -45,8 +52,24 @@ class SystemInvariantIntegrationTest {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
+    private static final String EXPIRED_MESSAGE =
+            "Your subscription has expired. Please contact the Platform Administrator to renew your subscription.";
+    private static final String MAX_BRANCH_MESSAGE =
+            "You have reached your maximum branch limit. Please contact the Platform Administrator.";
+
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private RoleRepository roleRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    private volatile String cachedPlatformToken;
 
     // ---------- authentication ----------
 
@@ -101,7 +124,7 @@ class SystemInvariantIntegrationTest {
     @Test
     void platformAdminCannotReadStoreDataButCanManageStores() {
         Session store = registerStore();
-        String platformToken = login("PLATFORM", "platform", "Admin@123");
+        String platformToken = platformToken();
 
         call(HttpMethod.GET, "/api/items", null, platformToken, HttpStatus.FORBIDDEN);
         call(HttpMethod.GET, "/api/dashboard", null, platformToken, HttpStatus.FORBIDDEN);
@@ -315,7 +338,7 @@ class SystemInvariantIntegrationTest {
     @Test
     void deactivationImmediatelyRevokesExistingTokens() {
         Session owner = registerStore();
-        String platformToken = login("PLATFORM", "platform", "Admin@123");
+        String platformToken = platformToken();
 
         JsonNode store = call(HttpMethod.GET, "/api/stores?search=" + owner.storeCode(),
                 null, platformToken, HttpStatus.OK).get("content").get(0);
@@ -470,6 +493,171 @@ class SystemInvariantIntegrationTest {
         assertMoney(sale.at("/items/0/totalAmount"), "100.00");
     }
 
+    // ---------- subscriptions and branch limits ----------
+
+    @Test
+    void expiredSubscriptionBlocksApisAndRenewalRestoresAccessImmediately() {
+        Session store = registerStore();
+        String platform = platformToken();
+
+        call(HttpMethod.PUT, "/api/platform/contact",
+                map("contactEmail", "support@platform.test", "contactPhone", "9000000010"),
+                platform, HttpStatus.OK);
+
+        LocalDate today = LocalDate.now();
+        updateSubscription(store, today.minusYears(1), today.minusDays(1), 5, "expire for test");
+
+        JsonNode blocked = call(HttpMethod.GET, "/api/items", null, store.token(), HttpStatus.FORBIDDEN);
+        assertEquals("SUBSCRIPTION_EXPIRED", blocked.get("code").asText());
+        assertEquals(EXPIRED_MESSAGE, blocked.get("message").asText());
+        assertEquals("support@platform.test", blocked.get("contactEmail").asText());
+        assertEquals("9000000010", blocked.get("contactPhone").asText());
+
+        // Store users can still sign in and read the expiry summary.
+        call(HttpMethod.POST, "/api/auth/login",
+                map("storeCode", store.storeCode(), "username", store.username(), "password", "Secret@123"),
+                null, HttpStatus.OK);
+        JsonNode summary = call(HttpMethod.GET, "/api/subscription/summary", null, store.token(), HttpStatus.OK);
+        assertTrue(summary.get("expired").asBoolean());
+        assertEquals("support@platform.test", summary.get("platformContactEmail").asText());
+        assertEquals("9000000010", summary.get("platformContactPhone").asText());
+
+        // Platform administrators keep working and can renew the store.
+        JsonNode stores = call(HttpMethod.GET, "/api/stores?search=" + store.storeCode(),
+                null, platform, HttpStatus.OK);
+        assertEquals(1, stores.get("content").size());
+
+        updateSubscription(store, today.minusYears(1), today.plusMonths(1), 5, "renewed");
+
+        // The same token works again immediately, without restarting the application.
+        call(HttpMethod.GET, "/api/items", null, store.token(), HttpStatus.OK);
+        JsonNode renewed = call(HttpMethod.GET, "/api/subscription/summary", null, store.token(), HttpStatus.OK);
+        assertTrue(!renewed.get("expired").asBoolean());
+
+        JsonNode history = call(HttpMethod.GET,
+                "/api/stores/" + store.storeId() + "/subscription/history",
+                null, platform, HttpStatus.OK);
+        assertEquals(2, history.size());
+    }
+
+    @Test
+    void branchLimitBlocksNewBranchesAndReductionKeepsExistingBranches() {
+        Session store = registerStore();
+        String platform = platformToken();
+        LocalDate today = LocalDate.now();
+        updateSubscription(store, today.minusMonths(1), today.plusMonths(6), 2, "limit two");
+
+        createBranch(store, "BR2");
+        JsonNode rejected = call(HttpMethod.POST, "/api/branches",
+                branchBody("BR3"), store.token(), HttpStatus.CONFLICT);
+        assertEquals(MAX_BRANCH_MESSAGE, rejected.get("message").asText());
+
+        JsonNode summary = call(HttpMethod.GET, "/api/subscription/summary", null, store.token(), HttpStatus.OK);
+        assertEquals(2, summary.get("maxBranches").asInt());
+        assertEquals(2, summary.get("branchCount").asInt());
+        assertEquals(0, summary.get("remainingBranches").asInt());
+
+        // Reducing the limit below the existing count must not delete branches.
+        updateSubscription(store, today.minusMonths(1), today.plusMonths(6), 1, "reduce below usage");
+        JsonNode branches = call(HttpMethod.GET, "/api/branches/all", null, store.token(), HttpStatus.OK);
+        assertEquals(2, branches.size());
+        JsonNode rejectedAfterReduction = call(HttpMethod.POST, "/api/branches",
+                branchBody("BR4"), store.token(), HttpStatus.CONFLICT);
+        assertEquals(MAX_BRANCH_MESSAGE, rejectedAfterReduction.get("message").asText());
+
+        JsonNode reduced = call(HttpMethod.GET, "/api/stores?search=" + store.storeCode(),
+                null, platform, HttpStatus.OK).get("content").get(0);
+        assertEquals(2, reduced.get("branchCount").asInt());
+        assertEquals(1, reduced.get("maxBranches").asInt());
+    }
+
+    @Test
+    void concurrentBranchCreationCannotExceedLimit() throws Exception {
+        Session store = registerStore();
+        LocalDate today = LocalDate.now();
+        updateSubscription(store, today.minusMonths(1), today.plusMonths(6), 3, "allow two more");
+
+        int attempts = 6;
+        ExecutorService pool = Executors.newFixedThreadPool(attempts);
+        CountDownLatch ready = new CountDownLatch(attempts);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Integer>> results = new ArrayList<>();
+        for (int i = 0; i < attempts; i++) {
+            int index = i;
+            results.add(pool.submit(() -> {
+                ready.countDown();
+                start.await(10, TimeUnit.SECONDS);
+                ResponseEntity<JsonNode> response = rest.exchange("/api/branches", HttpMethod.POST,
+                        entity(branchBody("C" + index), store.token()), JsonNode.class);
+                return response.getStatusCode().value();
+            }));
+        }
+        assertTrue(ready.await(10, TimeUnit.SECONDS));
+        start.countDown();
+
+        int successes = 0;
+        int conflicts = 0;
+        for (Future<Integer> result : results) {
+            int status = result.get(30, TimeUnit.SECONDS);
+            if (status == 200) {
+                successes++;
+            } else if (status == 409) {
+                conflicts++;
+            }
+        }
+        pool.shutdown();
+
+        assertEquals(2, successes, "only the remaining two branch slots may succeed");
+        assertEquals(attempts - 2, conflicts, "all other requests must be rejected with the limit message");
+        JsonNode branches = call(HttpMethod.GET, "/api/branches/all", null, store.token(), HttpStatus.OK);
+        assertEquals(3, branches.size());
+    }
+
+    @Test
+    void subscriptionManagementIsPlatformOnly() {
+        Session store = registerStore();
+        String platform = platformToken();
+        LocalDate today = LocalDate.now();
+
+        call(HttpMethod.GET, "/api/stores/" + store.storeId() + "/subscription",
+                null, store.token(), HttpStatus.FORBIDDEN);
+        call(HttpMethod.PUT, "/api/stores/" + store.storeId() + "/subscription",
+                map("startDate", today.toString(), "endDate", today.plusYears(2).toString(), "maxBranches", 50),
+                store.token(), HttpStatus.FORBIDDEN);
+        call(HttpMethod.GET, "/api/platform/contact", null, store.token(), HttpStatus.FORBIDDEN);
+        call(HttpMethod.PUT, "/api/platform/contact",
+                map("contactEmail", "hacked@test.local", "contactPhone", "9000000000"),
+                store.token(), HttpStatus.FORBIDDEN);
+        call(HttpMethod.GET, "/api/stores/" + store.storeId() + "/subscription/history",
+                null, store.token(), HttpStatus.FORBIDDEN);
+
+        // Platform administrators cannot read store-scoped subscription data.
+        call(HttpMethod.GET, "/api/subscription/summary", null, platform, HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void subscriptionChangesAreIsolatedPerStore() {
+        Session a = registerStore();
+        Session b = registerStore();
+        LocalDate today = LocalDate.now();
+
+        updateSubscription(a, today.minusYears(1), today.minusDays(1), 2, "expire A");
+
+        JsonNode summaryA = call(HttpMethod.GET, "/api/subscription/summary", null, a.token(), HttpStatus.OK);
+        assertTrue(summaryA.get("expired").asBoolean());
+        JsonNode summaryB = call(HttpMethod.GET, "/api/subscription/summary", null, b.token(), HttpStatus.OK);
+        assertTrue(!summaryB.get("expired").asBoolean());
+        assertEquals(5, summaryB.get("maxBranches").asInt());
+        call(HttpMethod.GET, "/api/items", null, b.token(), HttpStatus.OK);
+
+        updateSubscription(a, today.minusYears(1), today.plusMonths(1), 7, "renew A");
+        JsonNode renewedA = call(HttpMethod.GET, "/api/subscription/summary", null, a.token(), HttpStatus.OK);
+        assertEquals(7, renewedA.get("maxBranches").asInt());
+        JsonNode unchangedB = call(HttpMethod.GET, "/api/subscription/summary", null, b.token(), HttpStatus.OK);
+        assertEquals(5, unchangedB.get("maxBranches").asInt());
+        assertTrue(!unchangedB.get("expired").asBoolean());
+    }
+
     // ---------- fixtures ----------
 
     private record Session(String token, long storeId, long branchId, String storeCode, String username) {
@@ -507,6 +695,45 @@ class SystemInvariantIntegrationTest {
                 "username", username,
                 "password", "Secret@123",
                 "branchName", "Main Branch");
+    }
+
+    /**
+     * Creates a deterministic platform administrator in the disposable test database
+     * and reuses one token across tests.
+     */
+    private String platformToken() {
+        String token = cachedPlatformToken;
+        if (token == null) {
+            synchronized (this) {
+                if (cachedPlatformToken == null) {
+                    userRepository.findByUsernameIgnoreCaseAndStoreIdIsNull("platform").orElseGet(() -> {
+                        Role role = roleRepository.findByStoreIdIsNullAndCode("PLATFORM_ADMIN")
+                                .orElseThrow(() -> new IllegalStateException("PLATFORM_ADMIN role is missing"));
+                        return userRepository.save(User.builder()
+                                .storeId(null)
+                                .username("platform")
+                                .email("platform@test.local")
+                                .passwordHash(passwordEncoder.encode("Admin@123"))
+                                .fullName("Platform Administrator")
+                                .mobile("9000000001")
+                                .status(StoreStatus.ACTIVE)
+                                .roles(Set.of(role))
+                                .branches(Set.of())
+                                .build());
+                    });
+                    cachedPlatformToken = login("PLATFORM", "platform", "Admin@123");
+                }
+                token = cachedPlatformToken;
+            }
+        }
+        return token;
+    }
+
+    private void updateSubscription(Session session, LocalDate start, LocalDate end, int maxBranches, String note) {
+        call(HttpMethod.PUT, "/api/stores/" + session.storeId() + "/subscription",
+                map("startDate", start.toString(), "endDate", end.toString(),
+                        "maxBranches", maxBranches, "note", note),
+                platformToken(), HttpStatus.OK);
     }
 
     private Session loginWithUsername(String storeCode, String username) {
@@ -592,10 +819,13 @@ class SystemInvariantIntegrationTest {
     }
 
     private long createBranch(Session session, String code) {
-        return call(HttpMethod.POST, "/api/branches",
-                map("branchCode", code, "branchName", "Branch " + code,
-                        "address", "2 Branch Road", "contactNumber", "9000000004", "status", "ACTIVE"),
+        return call(HttpMethod.POST, "/api/branches", branchBody(code),
                 session.token(), HttpStatus.OK).get("id").asLong();
+    }
+
+    private Map<String, Object> branchBody(String code) {
+        return map("branchCode", code, "branchName", "Branch " + code,
+                "address", "2 Branch Road", "contactNumber", "9000000004", "status", "ACTIVE");
     }
 
     private long roleId(Session session, String roleCode) {

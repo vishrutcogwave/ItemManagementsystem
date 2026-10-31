@@ -1,6 +1,7 @@
 package com.itemmanagement.dto.master;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 public record StoreResponse(
         Long id,
@@ -15,6 +16,11 @@ public record StoreResponse(
         String status,
         Instant createdAt,
         long branchCount,
-        long userCount
+        long userCount,
+        LocalDate subscriptionStartDate,
+        LocalDate subscriptionEndDate,
+        int maxBranches,
+        long remainingBranches,
+        boolean subscriptionExpired
 ) {
 }

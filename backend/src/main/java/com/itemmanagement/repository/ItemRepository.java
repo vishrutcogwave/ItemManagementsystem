@@ -31,6 +31,10 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
 
     boolean existsByStoreIdAndItemCodeIgnoreCase(Long storeId, String itemCode);
 
+    Optional<Item> findByStoreIdAndItemCodeIgnoreCase(Long storeId, String itemCode);
+
+    List<Item> findByStoreIdAndItemNameIgnoreCaseAndCategoryId(Long storeId, String itemName, Long categoryId);
+
     @Query("""
             select i from Item i
             where i.storeId = :storeId

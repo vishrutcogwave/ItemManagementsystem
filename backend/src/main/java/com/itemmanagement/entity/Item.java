@@ -36,6 +36,9 @@ public class Item {
     @Column(nullable = false, length = 150)
     private String itemName;
 
+    @Column(length = 255)
+    private String description;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Unit baseUnit;

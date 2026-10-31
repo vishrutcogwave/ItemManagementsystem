@@ -3,16 +3,25 @@ import type { ApiErrorPayload } from '../types'
 
 export const AUTH_STORAGE_KEY = 'ims-auth'
 export const UNAUTHORIZED_EVENT = 'ims:unauthorized'
+export const SUBSCRIPTION_EXPIRED_EVENT = 'ims:subscription-expired'
+
+export interface SubscriptionExpiredDetail {
+  message: string
+  contactEmail: string
+  contactPhone: string
+}
 
 export class ApiError extends Error {
   status: number
+  code?: string
   fieldErrors: Record<string, string>
 
-  constructor(message: string, status = 0, fieldErrors: Record<string, string> = {}) {
+  constructor(message: string, status = 0, fieldErrors: Record<string, string> = {}, code?: string) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.fieldErrors = fieldErrors
+    this.code = code
   }
 }
 
@@ -51,6 +60,15 @@ api.interceptors.response.use(
       window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
     }
 
+    if (status === 403 && payload?.code === 'SUBSCRIPTION_EXPIRED') {
+      const detail: SubscriptionExpiredDetail = {
+        message: payload.message,
+        contactEmail: payload.contactEmail ?? '',
+        contactPhone: payload.contactPhone ?? '',
+      }
+      window.dispatchEvent(new CustomEvent(SUBSCRIPTION_EXPIRED_EVENT, { detail }))
+    }
+
     let message = payload?.message
     if (!message) {
       message =
@@ -61,7 +79,9 @@ api.interceptors.response.use(
             : 'Something went wrong. Please try again.'
     }
 
-    return Promise.reject(new ApiError(message, status, payload?.fieldErrors ?? {}))
+    return Promise.reject(
+      new ApiError(message, status, payload?.fieldErrors ?? {}, payload?.code),
+    )
   },
 )
 

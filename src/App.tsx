@@ -16,6 +16,9 @@ const SalesEntryPage = lazy(() =>
   import('./pages/SalesEntryPage').then((m) => ({ default: m.SalesEntryPage })),
 )
 const ItemsPage = lazy(() => import('./pages/ItemsPage').then((m) => ({ default: m.ItemsPage })))
+const ItemImportsPage = lazy(() =>
+  import('./pages/ItemImportsPage').then((m) => ({ default: m.ItemImportsPage })),
+)
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((m) => ({ default: m.CategoriesPage })))
 const TaxMasterPage = lazy(() => import('./pages/TaxMasterPage').then((m) => ({ default: m.TaxMasterPage })))
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage').then((m) => ({ default: m.SuppliersPage })))
@@ -133,6 +136,14 @@ export default function App() {
             element={
               <RequirePermission permission="ITEM_VIEW">
                 <ItemsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="items/imports"
+            element={
+              <RequirePermission anyOf={['ITEM_VIEW', 'INVENTORY_VIEW']}>
+                <ItemImportsPage />
               </RequirePermission>
             }
           />

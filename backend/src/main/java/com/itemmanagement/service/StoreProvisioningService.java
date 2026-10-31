@@ -21,6 +21,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,6 +83,7 @@ public class StoreProvisioningService {
         if (storeRepository.existsByStoreCodeIgnoreCase(storeCode)) {
             throw ApiException.conflict("Store code is already registered");
         }
+        LocalDate subscriptionStart = LocalDate.now(ZoneOffset.UTC);
         Store store = storeRepository.save(Store.builder()
                 .storeCode(storeCode)
                 .storeName(request.storeName().trim())
@@ -90,6 +93,9 @@ public class StoreProvisioningService {
                 .address(request.address().trim())
                 .gstNumber(blankToNull(request.gstNumber()))
                 .status(StoreStatus.ACTIVE)
+                .subscriptionStartDate(subscriptionStart)
+                .subscriptionEndDate(subscriptionStart.plusYears(1))
+                .maxBranches(5)
                 .build());
 
         Branch mainBranch = branchRepository.save(Branch.builder()

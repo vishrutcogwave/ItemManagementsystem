@@ -18,6 +18,15 @@ public interface InventoryTransactionRepository extends JpaRepository<InventoryT
 
     List<InventoryTransaction> findByStoreIdAndItemIdOrderByTransactionDateDesc(Long storeId, Long itemId);
 
+    boolean existsByStoreIdAndBranchIdAndItemId(Long storeId, Long branchId, Long itemId);
+
+    @Query("""
+            select distinct t.itemId from InventoryTransaction t
+            where t.storeId = :storeId and t.branchId = :branchId
+            """)
+    List<Long> findItemIdsWithTransactions(@Param("storeId") Long storeId,
+                                           @Param("branchId") Long branchId);
+
     @Query("""
             select t from InventoryTransaction t
             where t.storeId = :storeId

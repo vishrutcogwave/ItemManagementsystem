@@ -43,4 +43,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("select count(u) from User u join u.roles r where u.storeId = :storeId and r.code = :roleCode")
     long countByStoreIdAndRoleCode(@Param("storeId") Long storeId, @Param("roleCode") String roleCode);
+
+    @Query("""
+            select distinct u from User u
+            join fetch u.roles r
+            where u.storeId is null and r.storeId is null and r.code = 'PLATFORM_ADMIN'
+            order by u.id
+            """)
+    List<User> findPlatformAdmins();
 }

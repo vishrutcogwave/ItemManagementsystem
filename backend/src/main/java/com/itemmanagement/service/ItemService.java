@@ -94,6 +94,8 @@ public class ItemService {
                 .taxId(tax.getId())
                 .itemCode(code)
                 .itemName(request.itemName().trim())
+                .description(request.description() == null || request.description().isBlank()
+                        ? null : request.description().trim())
                 .baseUnit(request.baseUnit())
                 .rate(request.rate())
                 .minStockLevel(request.minStockLevel())
@@ -118,6 +120,8 @@ public class ItemService {
         item.setTaxId(tax.getId());
         item.setItemCode(code);
         item.setItemName(request.itemName().trim());
+        item.setDescription(request.description() == null || request.description().isBlank()
+                ? null : request.description().trim());
         item.setBaseUnit(request.baseUnit());
         item.setRate(request.rate());
         item.setMinStockLevel(request.minStockLevel());
@@ -258,7 +262,8 @@ public class ItemService {
                                     Map<Long, TaxMaster> taxes) {
         Category category = categories.get(item.getCategoryId());
         TaxMaster tax = taxes.get(item.getTaxId());
-        return new ItemResponse(item.getId(), item.getItemCode(), item.getItemName(), item.getCategoryId(),
+        return new ItemResponse(item.getId(), item.getItemCode(), item.getItemName(),
+                item.getDescription(), item.getCategoryId(),
                 category == null ? "" : category.getCategoryName(),
                 item.getTaxId(), tax == null ? "" : tax.getTaxName(),
                 tax == null ? BigDecimal.ZERO : tax.getGstPercentage(),

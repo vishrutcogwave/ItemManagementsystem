@@ -1,11 +1,13 @@
 import { Building2, ChevronDown, LogOut, Menu, Plus, Store, X } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { api } from '../../lib/api'
+import { api, SUBSCRIPTION_EXPIRED_EVENT, type SubscriptionExpiredDetail } from '../../lib/api'
 import { initials } from '../../lib/format'
 import { useAuthStore } from '../../store/auth'
+import type { SubscriptionSummary } from '../../types'
 import { Button } from '../ui'
 import { platformNav, pageTitle, storeNav } from './nav'
+import { SubscriptionExpiredScreen } from './SubscriptionExpired'
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { platformAdmin, store, user, logout, hasPermission, roles } = useAuthStore()
@@ -177,7 +179,76 @@ function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
 
 export function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const { platformAdmin, hasPermission } = useAuthStore()
+  const { platformAdmin, hasPermission, logout } = useAuthStore()
+  const navigate = useNavigate()
+  const [summary, setSummary] = useState<SubscriptionSummary | null>(null)
+  const [expiredDetail, setExpiredDetail] = useState<SubscriptionExpiredDetail | null>(null)
+  const [expired, setExpired] = useState(false)
+  const [checking, setChecking] = useState(false)
+
+  const checkSubscription = useCallback(async () => {
+    if (platformAdmin) return
+    setChecking(true)
+    try {
+      const { data } = await api.get<SubscriptionSummary>('/subscription/summary')
+      setSummary(data)
+      setExpired(data.expired)
+      if (!data.expired) setExpiredDetail(null)
+    } catch {
+      // The server enforces expiry on every API; a failed read must not unlock access.
+    } finally {
+      setChecking(false)
+    }
+  }, [platformAdmin])
+
+  useEffect(() => {
+    if (!platformAdmin) void checkSubscription()
+  }, [platformAdmin, checkSubscription])
+
+  useEffect(() => {
+    if (platformAdmin) return
+    const handler = (event: Event) => {
+      setExpired(true)
+      const detail = (event as CustomEvent<SubscriptionExpiredDetail>).detail
+      if (detail) setExpiredDetail(detail)
+      void checkSubscription()
+    }
+    window.addEventListener(SUBSCRIPTION_EXPIRED_EVENT, handler)
+    return () => window.removeEventListener(SUBSCRIPTION_EXPIRED_EVENT, handler)
+  }, [platformAdmin, checkSubscription])
+
+  useEffect(() => {
+    if (!expired || platformAdmin) return
+    const poll = () => void checkSubscription()
+    const timer = window.setInterval(poll, 30_000)
+    window.addEventListener('focus', poll)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', poll)
+    }
+  }, [expired, platformAdmin, checkSubscription])
+
+  const signOut = async () => {
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Token may already be expired; local cleanup still applies.
+    }
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  if (!platformAdmin && expired) {
+    return (
+      <SubscriptionExpiredScreen
+        summary={summary}
+        fallback={expiredDetail}
+        checking={checking}
+        onRetry={checkSubscription}
+        onSignOut={signOut}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-[#f3f5f9]">

@@ -10,6 +10,9 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -44,6 +47,24 @@ public class GlobalExceptionHandler {
         log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
         return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
                 "This change conflicts with existing data. Please check codes, names or connected records."));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleUploadSize(MaxUploadSizeExceededException ex) {
+        return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
+                "The uploaded file is larger than the allowed size (10 MB)"));
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingPart(MissingServletRequestPartException ex) {
+        return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
+                "Select an Excel file to upload"));
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<Map<String, Object>> handleMultipart(MultipartException ex) {
+        return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
+                "The upload could not be read. Select a valid Excel file"));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

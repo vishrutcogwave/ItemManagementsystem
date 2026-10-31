@@ -3,6 +3,7 @@ import {
   BarChart3,
   Boxes,
   ClipboardList,
+  FileSpreadsheet,
   LayoutDashboard,
   Package,
   Percent,
@@ -47,6 +48,7 @@ export const storeNav: NavGroup[] = [
     label: 'Catalog',
     items: [
       { to: '/items', label: 'Items', icon: Package, permission: 'ITEM_VIEW' },
+      { to: '/items/imports', label: 'Import History', icon: FileSpreadsheet, permission: 'ITEM_VIEW' },
       { to: '/categories', label: 'Categories', icon: Tags, permission: 'CATEGORY_VIEW' },
       { to: '/taxes', label: 'Tax Master', icon: Percent, permission: 'TAX_VIEW' },
       { to: '/suppliers', label: 'Suppliers', icon: Truck, permission: 'SUPPLIER_VIEW' },
@@ -81,8 +83,8 @@ export const platformNav: NavGroup[] = [
 export function pageTitle(pathname: string): string {
   const all = [...storeNav.flatMap((group) => group.items), ...platformNav.flatMap((group) => group.items)]
   if (pathname === '/') return 'Dashboard'
-  const match = all.find(
-    (item) => item.to !== '/' && (pathname === item.to || pathname.startsWith(`${item.to}/`)),
-  )
+  const match = [...all]
+    .sort((a, b) => b.to.length - a.to.length)
+    .find((item) => item.to !== '/' && (pathname === item.to || pathname.startsWith(`${item.to}/`)))
   return match?.label ?? 'Item Management'
 }

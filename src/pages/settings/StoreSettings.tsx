@@ -17,7 +17,7 @@ import { api, errorMessage, fieldErrorsOf } from '../../lib/api'
 import { formatDate } from '../../lib/format'
 import { useAuthStore } from '../../store/auth'
 import { notify } from '../../store/ui'
-import type { Store } from '../../types'
+import type { Store, SubscriptionSummary } from '../../types'
 
 interface FormState {
   storeName: string
@@ -45,6 +45,11 @@ export function StoreSettings() {
 
   const { data, loading, error, reload } = useApi<Store>(
     () => api.get('/stores/current').then((response) => response.data),
+    [],
+  )
+
+  const { data: subscription } = useApi<SubscriptionSummary>(
+    () => api.get('/subscription/summary').then((response) => response.data),
     [],
   )
 
@@ -222,6 +227,71 @@ export function StoreSettings() {
           </div>
         </div>
       </Card>
+
+      {subscription && (
+        <Card className="xl:col-span-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-800">Subscription & branch limit</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Managed by the Platform Administrator. Changes apply immediately.
+              </p>
+            </div>
+            <Badge tone={subscription.expired ? 'red' : subscription.daysRemaining <= 30 ? 'amber' : 'green'}>
+              {subscription.expired ? 'Expired' : `${subscription.daysRemaining} days remaining`}
+            </Badge>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 p-5 lg:grid-cols-5">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold text-slate-500">Subscription starts</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{formatDate(subscription.startDate)}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold text-slate-500">Subscription ends</p>
+              <p className={`mt-1 text-sm font-bold ${subscription.expired ? 'text-rose-600' : 'text-slate-900'}`}>
+                {formatDate(subscription.endDate)}
+              </p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold text-slate-500">Maximum branches</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{subscription.maxBranches}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold text-slate-500">Existing branches</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{subscription.branchCount}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold text-slate-500">Remaining branches</p>
+              <p className={`mt-1 text-sm font-bold ${subscription.remainingBranches === 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                {subscription.remainingBranches}
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 px-5 py-4 text-xs">
+            <p className="mb-1.5 text-[11px] font-bold tracking-wider text-slate-500 uppercase">
+              Platform administrator contact
+            </p>
+            <div className="flex flex-wrap gap-x-6 gap-y-1.5 text-slate-600">
+              <span className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                {subscription.platformContactEmail || 'Not configured'}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-slate-400" />
+                {subscription.platformContactPhone || 'Not configured'}
+              </span>
+            </div>
+            {subscription.expired && (
+              <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 font-semibold text-rose-700">
+                Your subscription has expired. Please contact the Platform Administrator to renew your
+                subscription.
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

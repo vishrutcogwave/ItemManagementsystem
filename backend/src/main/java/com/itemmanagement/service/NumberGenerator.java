@@ -32,4 +32,12 @@ public class NumberGenerator {
     public String nextAdjustment() {
         return next("adjustment_number_seq", "ADJ");
     }
+
+    public String nextItemCode() {
+        return next("item_code_seq", "ITM");
+    }
+
+    public String nextImportNumber() {
+        return next("item_import_number_seq", "IMP");
+    }
 }

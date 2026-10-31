@@ -3,6 +3,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Eye,
+  History,
   Mail,
   MapPin,
   Pencil,
@@ -23,6 +24,7 @@ import {
   ErrorState,
   Field,
   Input,
+  LoadingState,
   Modal,
   PageHeader,
   Pagination,
@@ -36,9 +38,16 @@ import {
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
-import { formatDate } from '../lib/format'
+import { formatDate, formatDateTime } from '../lib/format'
 import { notify, notifyError } from '../store/ui'
-import type { PageResponse, RegisterStoreRequest, Store } from '../types'
+import type {
+  PageResponse,
+  PlatformContact,
+  RegisterStoreRequest,
+  Store,
+  SubscriptionHistoryEntry,
+  SubscriptionSummary,
+} from '../types'
 
 interface FormState {
   storeCode: string
@@ -64,6 +73,20 @@ const empty: FormState = {
   branchName: '',
   username: '',
   password: '',
+}
+
+interface SubscriptionFormState {
+  startDate: string
+  endDate: string
+  maxBranches: string
+  note: string
+}
+
+const emptySubscription: SubscriptionFormState = {
+  startDate: '',
+  endDate: '',
+  maxBranches: '',
+  note: '',
 }
 
 export function PlatformStoresPage() {
@@ -103,6 +126,22 @@ export function PlatformStoresPage() {
   const [viewing, setViewing] = useState<Store | null>(null)
   const [statusTarget, setStatusTarget] = useState<Store | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
+
+  const [subTarget, setSubTarget] = useState<Store | null>(null)
+  const [subSummary, setSubSummary] = useState<SubscriptionSummary | null>(null)
+  const [subHistory, setSubHistory] = useState<SubscriptionHistoryEntry[]>([])
+  const [subForm, setSubForm] = useState<SubscriptionFormState>(emptySubscription)
+  const [subErrors, setSubErrors] = useState<Record<string, string>>({})
+  const [subError, setSubError] = useState<string | null>(null)
+  const [subLoading, setSubLoading] = useState(false)
+  const [subSaving, setSubSaving] = useState(false)
+
+  const [contactOpen, setContactOpen] = useState(false)
+  const [contactForm, setContactForm] = useState({ contactEmail: '', contactPhone: '' })
+  const [contactErrors, setContactErrors] = useState<Record<string, string>>({})
+  const [contactError, setContactError] = useState<string | null>(null)
+  const [contactLoading, setContactLoading] = useState(false)
+  const [contactSaving, setContactSaving] = useState(false)
 
   const refresh = () => {
     reload()
@@ -220,6 +259,126 @@ export function PlatformStoresPage() {
     }
   }
 
+  const loadSubscription = async (store: Store) => {
+    const [summary, history] = await Promise.all([
+      api.get<SubscriptionSummary>(`/stores/${store.id}/subscription`),
+      api.get<SubscriptionHistoryEntry[]>(`/stores/${store.id}/subscription/history`),
+    ])
+    setSubSummary(summary.data)
+    setSubHistory(history.data)
+    setSubForm({
+      startDate: summary.data.startDate,
+      endDate: summary.data.endDate,
+      maxBranches: String(summary.data.maxBranches),
+      note: '',
+    })
+  }
+
+  const openSubscription = async (store: Store) => {
+    setViewing(null)
+    setSubTarget(store)
+    setSubSummary(null)
+    setSubHistory([])
+    setSubForm({
+      startDate: store.subscriptionStartDate,
+      endDate: store.subscriptionEndDate,
+      maxBranches: String(store.maxBranches),
+      note: '',
+    })
+    setSubErrors({})
+    setSubError(null)
+    setSubLoading(true)
+    try {
+      await loadSubscription(store)
+    } catch (err) {
+      setSubError(errorMessage(err))
+    } finally {
+      setSubLoading(false)
+    }
+  }
+
+  const saveSubscription = async () => {
+    if (!subTarget) return
+    const nextErrors: Record<string, string> = {}
+    if (!subForm.startDate) nextErrors.startDate = 'Start date is required'
+    if (!subForm.endDate) nextErrors.endDate = 'End date is required'
+    if (subForm.startDate && subForm.endDate && subForm.endDate < subForm.startDate) {
+      nextErrors.endDate = 'End date cannot be before the start date'
+    }
+    const limit = Number(subForm.maxBranches)
+    if (!subForm.maxBranches.trim() || !Number.isInteger(limit) || limit < 1) {
+      nextErrors.maxBranches = 'Branch limit must be a whole number of at least 1'
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setSubErrors(nextErrors)
+      return
+    }
+
+    setSubSaving(true)
+    setSubError(null)
+    setSubErrors({})
+    try {
+      await api.put(`/stores/${subTarget.id}/subscription`, {
+        startDate: subForm.startDate,
+        endDate: subForm.endDate,
+        maxBranches: limit,
+        note: subForm.note.trim() || undefined,
+      })
+      notify('Subscription updated')
+      await loadSubscription(subTarget)
+      refresh()
+    } catch (err) {
+      setSubError(errorMessage(err))
+      setSubErrors(fieldErrorsOf(err))
+    } finally {
+      setSubSaving(false)
+    }
+  }
+
+  const openContact = async () => {
+    setContactOpen(true)
+    setContactErrors({})
+    setContactError(null)
+    setContactLoading(true)
+    try {
+      const { data } = await api.get<PlatformContact>('/platform/contact')
+      setContactForm({ contactEmail: data.contactEmail, contactPhone: data.contactPhone })
+    } catch (err) {
+      setContactError(errorMessage(err))
+    } finally {
+      setContactLoading(false)
+    }
+  }
+
+  const saveContact = async () => {
+    const nextErrors: Record<string, string> = {}
+    if (!contactForm.contactEmail.trim()) nextErrors.contactEmail = 'Contact email is required'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactForm.contactEmail.trim())) {
+      nextErrors.contactEmail = 'Enter a valid email'
+    }
+    if (!contactForm.contactPhone.trim()) nextErrors.contactPhone = 'Contact phone is required'
+    if (Object.keys(nextErrors).length > 0) {
+      setContactErrors(nextErrors)
+      return
+    }
+    setContactSaving(true)
+    setContactError(null)
+    setContactErrors({})
+    try {
+      await api.put('/platform/contact', {
+        contactEmail: contactForm.contactEmail.trim(),
+        contactPhone: contactForm.contactPhone.trim(),
+      })
+      notify('Platform contact updated')
+      setContactOpen(false)
+    } catch (err) {
+      setContactError(errorMessage(err))
+      setContactErrors(fieldErrorsOf(err))
+    } finally {
+      setContactSaving(false)
+    }
+  }
+
   const columns: Column<Store>[] = [
     {
       key: 'store',
@@ -265,6 +424,21 @@ export function PlatformStoresPage() {
         </div>
       ),
     },
+    {
+      key: 'subscription',
+      header: 'Subscription',
+      render: (row) => (
+        <div className="text-xs">
+          <p className={row.subscriptionExpired ? 'font-semibold text-rose-600' : 'font-medium text-slate-700'}>
+            {formatDate(row.subscriptionEndDate)}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
+            {row.subscriptionExpired && <Badge tone="red">Expired</Badge>}
+            {row.branchCount} / {row.maxBranches} branches · {row.remainingBranches} left
+          </p>
+        </div>
+      ),
+    },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge status={row.status} /> },
     { key: 'created', header: 'Onboarded', render: (row) => <span className="text-slate-500">{formatDate(row.createdAt)}</span> },
     {
@@ -273,6 +447,13 @@ export function PlatformStoresPage() {
       align: 'right',
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={() => openSubscription(row)}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            title="Manage subscription"
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+          </button>
           <button
             onClick={() => setViewing(row)}
             className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
@@ -308,9 +489,14 @@ export function PlatformStoresPage() {
         title="Registered stores"
         subtitle="Onboard new businesses and monitor store footprints across the platform."
         actions={
-          <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-            Onboard store
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" icon={<Phone className="h-4 w-4" />} onClick={openContact}>
+              Platform contact
+            </Button>
+            <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+              Onboard store
+            </Button>
+          </div>
         }
       />
 
@@ -518,6 +704,7 @@ export function PlatformStoresPage() {
               <div>
                 <p className="flex items-center gap-2 text-sm font-bold text-slate-800">
                   {viewing.storeName} <StatusBadge status={viewing.status} />
+                  {viewing.subscriptionExpired && <Badge tone="red">Subscription expired</Badge>}
                 </p>
                 <p className="text-xs text-slate-500">Owner: {viewing.ownerName}</p>
               </div>
@@ -535,6 +722,22 @@ export function PlatformStoresPage() {
                   <Users className="h-3.5 w-3.5" /> Users
                 </p>
                 <p className="mt-1 text-xl font-bold text-slate-900">{viewing.userCount}</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                  <CalendarDays className="h-3.5 w-3.5" /> Subscription ends
+                </p>
+                <p className={`mt-1 text-sm font-bold ${viewing.subscriptionExpired ? 'text-rose-600' : 'text-slate-900'}`}>
+                  {formatDate(viewing.subscriptionEndDate)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                  <Building2 className="h-3.5 w-3.5" /> Branch limit
+                </p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {viewing.branchCount} / {viewing.maxBranches}
+                </p>
               </div>
             </div>
 
@@ -557,6 +760,209 @@ export function PlatformStoresPage() {
                 </p>
               )}
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(subTarget)}
+        onClose={() => setSubTarget(null)}
+        title={subTarget ? `Subscription · ${subTarget.storeName}` : 'Subscription'}
+        description={
+          subTarget
+            ? `${subTarget.storeCode} · Set the subscription period and the maximum number of branches.`
+            : undefined
+        }
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setSubTarget(null)} disabled={subSaving}>
+              Close
+            </Button>
+            <Button onClick={saveSubscription} loading={subSaving}>
+              Save subscription
+            </Button>
+          </>
+        }
+      >
+        {subLoading && !subSummary ? (
+          <LoadingState />
+        ) : (
+          <div className="space-y-4">
+            {subError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                {subError}
+              </div>
+            )}
+
+            {subSummary && (
+              <>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-500">Ends</p>
+                    <p className={`mt-1 text-sm font-bold ${subSummary.expired ? 'text-rose-600' : 'text-slate-900'}`}>
+                      {formatDate(subSummary.endDate)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-500">Branches used</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">{subSummary.branchCount}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-500">Limit</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">{subSummary.maxBranches}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold text-slate-500">Remaining</p>
+                    <p className={`mt-1 text-sm font-bold ${subSummary.remainingBranches === 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {subSummary.remainingBranches}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge tone={subSummary.expired ? 'red' : 'green'}>
+                    {subSummary.expired ? 'Expired' : 'Active'}
+                  </Badge>
+                  <span className="text-slate-500">
+                    {subSummary.expired
+                      ? 'Store users are blocked until the end date is extended.'
+                      : `${subSummary.daysRemaining} days remaining in the current period.`}
+                  </span>
+                </div>
+                {subSummary.expired && (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                    Your subscription has expired. Please contact the Platform Administrator to renew your
+                    subscription.
+                  </p>
+                )}
+              </>
+            )}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Subscription start date" required error={subErrors.startDate}>
+                <Input
+                  type="date"
+                  value={subForm.startDate}
+                  onChange={(event) => setSubForm({ ...subForm, startDate: event.target.value })}
+                />
+              </Field>
+              <Field label="Subscription end date" required error={subErrors.endDate} hint="Extend at any time">
+                <Input
+                  type="date"
+                  value={subForm.endDate}
+                  onChange={(event) => setSubForm({ ...subForm, endDate: event.target.value })}
+                />
+              </Field>
+              <Field
+                label="Maximum branches"
+                required
+                error={subErrors.maxBranches}
+                hint="Total branches allowed, including the Main branch"
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  value={subForm.maxBranches}
+                  onChange={(event) => setSubForm({ ...subForm, maxBranches: event.target.value })}
+                />
+              </Field>
+              <Field label="Change note" error={subErrors.note} hint="Saved in the change history">
+                <Input
+                  value={subForm.note}
+                  onChange={(event) => setSubForm({ ...subForm, note: event.target.value })}
+                  placeholder="Reason for this change"
+                />
+              </Field>
+            </div>
+
+            {subSummary && Number(subForm.maxBranches) < subSummary.branchCount && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                This limit is below the {subSummary.branchCount} existing branches. No branches will be deleted;
+                new branches will be blocked until the limit is raised.
+              </p>
+            )}
+
+            <div className="rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between border-b border-slate-100 px-3.5 py-2.5">
+                <p className="flex items-center gap-1.5 text-[11px] font-bold tracking-wider text-slate-500 uppercase">
+                  <History className="h-3.5 w-3.5" /> Change history
+                </p>
+                <span className="text-[11px] text-slate-400">{subHistory.length} entries</span>
+              </div>
+              <div className="max-h-56 space-y-2 overflow-y-auto p-3">
+                {subHistory.length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-slate-500">No subscription changes recorded yet.</p>
+                ) : (
+                  subHistory.map((entry) => (
+                    <div key={entry.id} className="rounded-lg bg-slate-50 px-3 py-2 text-[11px]">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <span className="font-semibold text-slate-700">
+                          {entry.changedByUsername || 'Platform Administrator'}
+                        </span>
+                        <span className="text-slate-400">{formatDateTime(entry.changedAt)}</span>
+                      </div>
+                      <p className="mt-1 text-slate-600">
+                        Period: {formatDate(entry.previousStartDate)} → {formatDate(entry.newStartDate)} ·{' '}
+                        {formatDate(entry.previousEndDate)} → {formatDate(entry.newEndDate)}
+                      </p>
+                      <p className="text-slate-600">
+                        Branch limit: {entry.previousMaxBranches ?? '—'} → {entry.newMaxBranches ?? '—'}
+                      </p>
+                      {entry.note && <p className="mt-0.5 text-slate-500 italic">“{entry.note}”</p>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={contactOpen}
+        onClose={() => setContactOpen(false)}
+        title="Platform contact"
+        description="These details are shown to store users on the expired-subscription screen."
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setContactOpen(false)} disabled={contactSaving}>
+              Cancel
+            </Button>
+            <Button onClick={saveContact} loading={contactSaving}>
+              Save contact
+            </Button>
+          </>
+        }
+      >
+        {contactLoading ? (
+          <LoadingState />
+        ) : (
+          <div className="space-y-4">
+            {contactError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                {contactError}
+              </div>
+            )}
+            <Field label="Contact email" required error={contactErrors.contactEmail}>
+              <Input
+                type="email"
+                value={contactForm.contactEmail}
+                onChange={(event) => setContactForm({ ...contactForm, contactEmail: event.target.value })}
+                placeholder="admin@company.com"
+              />
+            </Field>
+            <Field label="Contact phone" required error={contactErrors.contactPhone}>
+              <Input
+                value={contactForm.contactPhone}
+                onChange={(event) => setContactForm({ ...contactForm, contactPhone: event.target.value })}
+                placeholder="9876543210"
+              />
+            </Field>
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+              If a value is left empty, the primary platform administrator account email and mobile number are used
+              automatically.
+            </p>
           </div>
         )}
       </Modal>
