@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Package,
   Percent,
+  Printer,
   ReceiptText,
   Settings,
   ShoppingCart,
@@ -42,6 +43,7 @@ export const storeNav: NavGroup[] = [
       { to: '/pos', label: 'POS Billing', icon: ShoppingCart, permission: 'SALES_MANAGE' },
       { to: '/sales/new', label: 'Sales Entry', icon: SquarePen, permission: 'SALES_MANAGE' },
       { to: '/sales', label: 'Sales History', icon: ReceiptText, permission: 'SALES_VIEW' },
+      { to: '/print-history', label: 'Print History', icon: Printer, permission: 'SALES_VIEW' },
     ],
   },
   {

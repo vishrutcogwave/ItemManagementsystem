@@ -1,0 +1,6 @@
+com.itemmanagement.printbridge.PrintBridgeService
+com.itemmanagement.printbridge.MainActivity
+com.itemmanagement.printbridge.BootReceiver
+com.itemmanagement.printbridge.BootReceiver: BootReceiver()
+com.itemmanagement.printbridge.PrintBridgeService: PrintBridgeService()
+com.itemmanagement.printbridge.MainActivity: MainActivity()

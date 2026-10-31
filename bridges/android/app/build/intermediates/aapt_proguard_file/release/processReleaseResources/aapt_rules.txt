@@ -1,0 +1,3 @@
+-keep class com.itemmanagement.printbridge.BootReceiver { <init>(); }
+-keep class com.itemmanagement.printbridge.MainActivity { <init>(); }
+-keep class com.itemmanagement.printbridge.PrintBridgeService { <init>(); }

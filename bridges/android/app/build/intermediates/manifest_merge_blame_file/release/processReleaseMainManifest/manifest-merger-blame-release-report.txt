@@ -1,0 +1,101 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.itemmanagement.printbridge"
+4    android:versionCode="1"
+5    android:versionName="1.0.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:4:5-67
+11-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:4:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:5:5-79
+12-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:5:22-76
+13    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+13-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:6:5-81
+13-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:6:22-78
+14    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+14-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:7:5-77
+14-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:7:22-74
+15    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+15-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:8:5-87
+15-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:8:22-84
+16    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+16-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:9:5-77
+16-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:9:22-74
+17    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+17-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:10:5-95
+17-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:10:22-92
+18
+19    <application
+19-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:12:5-46:19
+20        android:allowBackup="false"
+20-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:13:9-36
+21        android:extractNativeLibs="false"
+22        android:icon="@mipmap/ic_launcher"
+22-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:14:9-43
+23        android:label="@string/app_name"
+23-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:15:9-41
+24        android:roundIcon="@mipmap/ic_launcher"
+24-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:16:9-48
+25        android:supportsRtl="true"
+25-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:17:9-35
+26        android:theme="@style/AppTheme"
+26-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:18:9-40
+27        android:usesCleartextTraffic="true" >
+27-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:19:9-44
+28        <activity
+28-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:21:9-30:20
+29            android:name="com.itemmanagement.printbridge.MainActivity"
+29-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:22:13-41
+30            android:exported="true"
+30-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:23:13-36
+31            android:launchMode="singleTop"
+31-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:24:13-43
+32            android:windowSoftInputMode="adjustResize" >
+32-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:25:13-55
+33            <intent-filter>
+33-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:26:13-29:29
+34                <action android:name="android.intent.action.MAIN" />
+34-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:27:17-69
+34-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:27:25-66
+35
+36                <category android:name="android.intent.category.LAUNCHER" />
+36-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:28:17-77
+36-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:28:27-74
+37            </intent-filter>
+38        </activity>
+39
+40        <service
+40-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:32:9-35:56
+41            android:name="com.itemmanagement.printbridge.PrintBridgeService"
+41-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:33:13-47
+42            android:exported="false"
+42-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:34:13-37
+43            android:foregroundServiceType="dataSync" />
+43-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:35:13-53
+44
+45        <receiver
+45-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:37:9-45:20
+46            android:name="com.itemmanagement.printbridge.BootReceiver"
+46-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:38:13-41
+47            android:enabled="true"
+47-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:39:13-35
+48            android:exported="true" >
+48-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:40:13-36
+49            <intent-filter>
+49-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:41:13-44:29
+50                <action android:name="android.intent.action.BOOT_COMPLETED" />
+50-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:42:17-79
+50-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:42:25-76
+51                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+51-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:43:17-84
+51-->D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\AndroidManifest.xml:43:25-81
+52            </intent-filter>
+53        </receiver>
+54    </application>
+55
+56</manifest>

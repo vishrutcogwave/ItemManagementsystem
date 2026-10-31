@@ -1,0 +1,38 @@
+[
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/drawable_ic_stat_print.xml.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/drawable/ic_stat_print.xml"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.itemmanagement.printbridge.app-release-5:/layout_activity_main.xml.flat",
+        "source": "com.itemmanagement.printbridge.app-main-6:/layout/activity_main.xml"
+    }
+]

@@ -1,0 +1,55 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.itemmanagement.printbridge.app-release-5:/values_values.arsc.flat",
+            "map": [
+                {
+                    "source": "D:\\vishrut\\Clone\\ItemManagementSystem\\bridges\\android\\app\\src\\main\\res\\values\\themes.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "8",
+                        "endColumns": "12",
+                        "endOffsets": "444"
+                    },
+                    "to": {
+                        "startLines": "7",
+                        "startColumns": "4",
+                        "startOffsets": "354",
+                        "endLines": "13",
+                        "endColumns": "12",
+                        "endOffsets": "743"
+                    }
+                },
+                {
+                    "source": "D:\\vishrut\\Clone\\ItemManagementSystem\\bridges\\android\\app\\src\\main\\res\\values\\strings.xml",
+                    "from": {
+                        "startLines": "2,3,5,4",
+                        "startColumns": "4,4,4,4",
+                        "startOffsets": "55,105,246,175",
+                        "endColumns": "49,69,50,70",
+                        "endOffsets": "100,170,292,241"
+                    },
+                    "to": {
+                        "startLines": "3,4,5,6",
+                        "startColumns": "4,4,4,4",
+                        "startOffsets": "112,162,232,283",
+                        "endColumns": "49,69,50,70",
+                        "endOffsets": "157,227,278,349"
+                    }
+                },
+                {
+                    "source": "D:\\vishrut\\Clone\\ItemManagementSystem\\bridges\\android\\app\\src\\main\\res\\values\\ic_launcher_background.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "56",
+                        "endOffsets": "107"
+                    }
+                }
+            ]
+        }
+    ]
+}

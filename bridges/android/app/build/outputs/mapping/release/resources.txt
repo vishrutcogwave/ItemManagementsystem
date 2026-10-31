@@ -1,0 +1,87 @@
+Marking layout:activity_main:2130968576 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:statusValue:2130903055 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:keyValue:2130903043 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:storeValue:2130903057 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:printersValue:2130903049 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:syncValue:2130903058 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:lastResultValue:2130903044 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:serverUrlInput:2130903052 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:pairingCodeInput:2130903047 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:deviceNameInput:2130903042 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:portInput:2130903048 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:originInput:2130903045 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:startOnBootSwitch:2130903054 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:pairButton:2130903046 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:copyKeyButton:2130903041 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:startButton:2130903053 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:stopButton:2130903056 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:refreshButton:2130903050 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:saveNetworkButton:2130903051 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking id:batteryButton:2130903040 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking drawable:ic_stat_print:2130837505 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking string:notification_title:2131099651 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking string:notification_stop:2131099650 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+Marking string:notification_channel:2131099649 reachable: referenced from D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\dex\release\minifyReleaseWithR8\classes.dex
+@color/ic_launcher_background : reachable=false
+@drawable/ic_launcher_foreground : reachable=false
+@drawable/ic_stat_print : reachable=true
+@id/batteryButton : reachable=true
+@id/copyKeyButton : reachable=true
+@id/deviceNameInput : reachable=true
+@id/keyValue : reachable=true
+@id/lastResultValue : reachable=true
+@id/originInput : reachable=true
+@id/pairButton : reachable=true
+@id/pairingCodeInput : reachable=true
+@id/portInput : reachable=true
+@id/printersValue : reachable=true
+@id/refreshButton : reachable=true
+@id/saveNetworkButton : reachable=true
+@id/serverUrlInput : reachable=true
+@id/startButton : reachable=true
+@id/startOnBootSwitch : reachable=true
+@id/statusValue : reachable=true
+@id/stopButton : reachable=true
+@id/storeValue : reachable=true
+@id/syncValue : reachable=true
+@layout/activity_main : reachable=true
+@mipmap/ic_launcher : reachable=true
+    @color/ic_launcher_background
+    @drawable/ic_launcher_foreground
+@string/app_name : reachable=true
+@string/notification_channel : reachable=true
+@string/notification_stop : reachable=true
+@string/notification_title : reachable=true
+@style/AppTheme : reachable=true
+
+The root reachable resources are:
+ drawable:ic_stat_print:2130837505
+ id:batteryButton:2130903040
+ id:copyKeyButton:2130903041
+ id:deviceNameInput:2130903042
+ id:keyValue:2130903043
+ id:lastResultValue:2130903044
+ id:originInput:2130903045
+ id:pairButton:2130903046
+ id:pairingCodeInput:2130903047
+ id:portInput:2130903048
+ id:printersValue:2130903049
+ id:refreshButton:2130903050
+ id:saveNetworkButton:2130903051
+ id:serverUrlInput:2130903052
+ id:startButton:2130903053
+ id:startOnBootSwitch:2130903054
+ id:statusValue:2130903055
+ id:stopButton:2130903056
+ id:storeValue:2130903057
+ id:syncValue:2130903058
+ layout:activity_main:2130968576
+ mipmap:ic_launcher:2131034112
+ string:app_name:2131099648
+ string:notification_channel:2131099649
+ string:notification_stop:2131099650
+ string:notification_title:2131099651
+ style:AppTheme:2131165184
+Unused resources are: 
+
+Resource shrinking did not work (grew from 9590 to 9694); using original instead

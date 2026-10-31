@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#0F172A</color>
+    <string name="app_name">Print Bridge</string>
+    <string name="notification_channel">Print bridge service</string>
+    <string name="notification_stop">Stop</string>
+    <string name="notification_title">Print bridge is running</string>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#0F172A</item>
+        <item name="android:colorPrimaryDark">#0F172A</item>
+        <item name="android:colorAccent">#0D9488</item>
+        <item name="android:statusBarColor">#0F172A</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

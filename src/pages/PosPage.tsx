@@ -27,8 +27,8 @@ import {
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage } from '../lib/api'
-import { printSaleReceipt } from '../lib/documents'
 import { money, qty, today } from '../lib/format'
+import { autoPrintSale, printSaleReceiptForDevice } from '../services/printerService'
 import { billPreview, isInterState } from '../lib/tax'
 import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
@@ -50,6 +50,7 @@ const paymentOptions: { value: PaymentMethod; label: string; icon: typeof Bankno
 export function PosPage() {
   const { branches, selectedBranchId, setBranch, store, user } = useAuthStore()
   const branchId = selectedBranchId ?? branches[0]?.id ?? null
+  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
 
   useEffect(() => {
     if (!selectedBranchId && branches[0]) setBranch(branches[0].id)
@@ -205,6 +206,9 @@ export function PosPage() {
       notify(`Sale ${data.salesNumber} completed`)
       resetSale()
       reload()
+      void autoPrintSale(data, storeInfo).then((outcome) => {
+        if (outcome?.status === 'FAILED') notifyError(outcome.message ?? 'The receipt could not be printed')
+      })
     } catch (err) {
       notifyError(errorMessage(err))
     } finally {
@@ -213,6 +217,15 @@ export function PosPage() {
   }
 
   const activeBranch = branches.find((branch) => branch.id === branchId)
+
+  const printCompletedReceipt = async () => {
+    if (!completedSale) return
+    const outcome = await printSaleReceiptForDevice(completedSale, storeInfo)
+    if (!outcome) return
+    if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
+    else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
+    else if (outcome.status !== 'UNSUPPORTED' || outcome.message) notifyError(outcome.message ?? 'Unable to print receipt')
+  }
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
@@ -568,13 +581,7 @@ export function PosPage() {
             </Button>
             <Button
               icon={<Printer className="h-4 w-4" />}
-              onClick={() =>
-                completedSale &&
-                printSaleReceipt(completedSale, {
-                  name: store?.storeName ?? 'Store',
-                  gstNumber: store?.gstNumber,
-                })
-              }
+              onClick={() => void printCompletedReceipt()}
             >
               Print receipt
             </Button>

@@ -1,0 +1,8 @@
+com.itemmanagement.printbridge.app-pngs-0 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\generated\res\pngs\release
+com.itemmanagement.printbridge.app-resValues-1 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\generated\res\resValues\release
+com.itemmanagement.printbridge.app-packageReleaseResources-2 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\incremental\release\packageReleaseResources\merged.dir
+com.itemmanagement.printbridge.app-packageReleaseResources-3 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\incremental\release\packageReleaseResources\stripped.dir
+com.itemmanagement.printbridge.app-merged-not-compiled-resources-4 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\merged-not-compiled-resources\release
+com.itemmanagement.printbridge.app-release-5 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\build\intermediates\merged_res\release\mergeReleaseResources
+com.itemmanagement.printbridge.app-main-6 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\main\res
+com.itemmanagement.printbridge.app-release-7 D:\vishrut\Clone\ItemManagementSystem\bridges\android\app\src\release\res

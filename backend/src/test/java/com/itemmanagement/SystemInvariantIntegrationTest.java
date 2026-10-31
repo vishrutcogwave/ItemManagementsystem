@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -504,7 +505,7 @@ class SystemInvariantIntegrationTest {
                 map("contactEmail", "support@platform.test", "contactPhone", "9000000010"),
                 platform, HttpStatus.OK);
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         updateSubscription(store, today.minusYears(1), today.minusDays(1), 5, "expire for test");
 
         JsonNode blocked = call(HttpMethod.GET, "/api/items", null, store.token(), HttpStatus.FORBIDDEN);
@@ -544,7 +545,7 @@ class SystemInvariantIntegrationTest {
     void branchLimitBlocksNewBranchesAndReductionKeepsExistingBranches() {
         Session store = registerStore();
         String platform = platformToken();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         updateSubscription(store, today.minusMonths(1), today.plusMonths(6), 2, "limit two");
 
         createBranch(store, "BR2");
@@ -574,7 +575,7 @@ class SystemInvariantIntegrationTest {
     @Test
     void concurrentBranchCreationCannotExceedLimit() throws Exception {
         Session store = registerStore();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         updateSubscription(store, today.minusMonths(1), today.plusMonths(6), 3, "allow two more");
 
         int attempts = 6;
@@ -617,7 +618,7 @@ class SystemInvariantIntegrationTest {
     void subscriptionManagementIsPlatformOnly() {
         Session store = registerStore();
         String platform = platformToken();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
         call(HttpMethod.GET, "/api/stores/" + store.storeId() + "/subscription",
                 null, store.token(), HttpStatus.FORBIDDEN);
@@ -639,7 +640,7 @@ class SystemInvariantIntegrationTest {
     void subscriptionChangesAreIsolatedPerStore() {
         Session a = registerStore();
         Session b = registerStore();
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
         updateSubscription(a, today.minusYears(1), today.minusDays(1), 2, "expire A");
 

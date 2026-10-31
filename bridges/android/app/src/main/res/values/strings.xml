@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Print Bridge</string>
+    <string name="notification_channel">Print bridge service</string>
+    <string name="notification_title">Print bridge is running</string>
+    <string name="notification_stop">Stop</string>
+</resources>

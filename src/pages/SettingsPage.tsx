@@ -1,9 +1,10 @@
-import { Building2, ShieldCheck, Store, Users } from 'lucide-react'
+import { Building2, Printer, ShieldCheck, Store, Users } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Badge, PageHeader, Tabs } from '../components/ui'
 import { useAuthStore } from '../store/auth'
 import { BranchesSettings } from './settings/BranchesSettings'
+import { PrintersSettings } from './settings/PrintersSettings'
 import { RolesSettings } from './settings/RolesSettings'
 import { StoreSettings } from './settings/StoreSettings'
 import { UsersSettings } from './settings/UsersSettings'
@@ -19,6 +20,7 @@ export function SettingsPage() {
     if (hasPermission('BRANCH_VIEW')) list.push({ key: 'branches', label: 'Branches' })
     if (hasPermission('USER_VIEW')) list.push({ key: 'users', label: 'Users' })
     if (hasPermission('ROLE_VIEW')) list.push({ key: 'roles', label: 'Roles & permissions' })
+    if (hasPermission('PRINTER_VIEW')) list.push({ key: 'printers', label: 'Printers' })
     return list
   }, [hasPermission])
 
@@ -59,6 +61,9 @@ export function SettingsPage() {
           <span className="flex items-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" /> Roles
           </span>
+          <span className="flex items-center gap-1">
+            <Printer className="h-3.5 w-3.5" /> Printers
+          </span>
         </div>
       </div>
 
@@ -66,6 +71,7 @@ export function SettingsPage() {
       {active === 'branches' && <BranchesSettings />}
       {active === 'users' && <UsersSettings />}
       {active === 'roles' && <RolesSettings />}
+      {active === 'printers' && <PrintersSettings />}
     </div>
   )
 }
