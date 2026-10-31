@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F8FAFC"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Item Management Print Bridge"
+            android:textColor="#0F172A"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Silent receipt printing for Android phones and tablets. Keep this app running while billing."
+            android:textColor="#64748B"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="BRIDGE STATUS"
+            android:textColor="#0F766E"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/statusValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Starting..."
+            android:textColor="#0F172A"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Bridge key (paste this in Settings → Printers on the website)"
+            android:textColor="#475569"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/keyValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="#E2E8F0"
+            android:fontFamily="monospace"
+            android:padding="10dp"
+            android:textColor="#0F172A"
+            android:textIsSelectable="true"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/copyKeyButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:text="Copy key" />
+
+            <Button
+                android:id="@+id/startButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:text="Start" />
+
+            <Button
+                android:id="@+id/stopButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:text="Stop" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="PAIR WITH YOUR STORE"
+            android:textColor="#0F766E"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="In the website open Settings → Printers, generate a one-time pairing code, then enter it here with the website address."
+            android:textColor="#64748B"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/serverUrlInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Website address (https://store.example.com)"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/pairingCodeInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="One-time pairing code"
+            android:importantForAutofill="no"
+            android:inputType="textCapCharacters"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/deviceNameInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Device name"
+            android:importantForAutofill="no"
+            android:inputType="textCapSentences"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/pairButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Pair device" />
+
+        <Button
+            android:id="@+id/refreshButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Refresh printer config" />
+
+        <TextView
+            android:id="@+id/storeValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="#0F172A"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/printersValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#FFFFFF"
+            android:padding="10dp"
+            android:textColor="#334155"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/syncValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="#64748B"
+            android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="NETWORK AND STARTUP"
+            android:textColor="#0F766E"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Bridge port (must match the website)"
+            android:textColor="#475569"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/portInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="17778"
+            android:importantForAutofill="no"
+            android:inputType="number"
+            android:maxLength="5"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/originInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Allowed website (optional, https://store.example.com)"
+            android:importantForAutofill="no"
+            android:inputType="textUri"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/saveNetworkButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Save network settings" />
+
+        <Switch
+            android:id="@+id/startOnBootSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Start bridge when Android starts"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/batteryButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Allow background service" />
+
+        <TextView
+            android:id="@+id/lastResultValue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="#475569"
+            android:textSize="12sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Security: this bridge only listens on 127.0.0.1 inside this device. Every website request must include the bridge key. Printer settings are pulled from your store after pairing and are isolated by store and branch."
+            android:textColor="#94A3B8"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>

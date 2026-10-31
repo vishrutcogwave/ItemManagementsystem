@@ -856,3 +856,86 @@ export interface ApiErrorPayload {
   contactPhone?: string
   fieldErrors?: Record<string, string>
 }
+
+export type PaperWidth = 'MM58' | 'MM80'
+export type PrinterPurpose = 'RECEIPT' | 'PURCHASE' | 'REPORT' | 'ALL'
+export type PrintPlatform = 'WINDOWS' | 'ANDROID'
+export type PrintJobStatus = 'PENDING' | 'PRINTED' | 'FAILED'
+export type PrintJobChannel = PrintPlatform
+export type PrintJobTrigger = 'AUTO' | 'MANUAL'
+
+export interface PrinterConfig {
+  id: number
+  storeId: number
+  branchId: number
+  printerName: string
+  ipAddress: string
+  port: number
+  paperWidth: PaperWidth
+  purpose: PrinterPurpose
+  status: StoreStatus
+  lastTestAt: string | null
+  lastTestMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PrinterConfigRequest {
+  printerName: string
+  ipAddress: string
+  port: number
+  paperWidth: PaperWidth
+  purpose: PrinterPurpose
+  branchId: number
+  status: StoreStatus
+}
+
+export interface PrintPairingCode {
+  code: string
+  branchId: number
+  expiresAt: string
+}
+
+export interface PrintDevice {
+  id: number
+  deviceName: string
+  platform: PrintPlatform
+  status: 'ACTIVE' | 'REVOKED'
+  pairedBy: string | null
+  createdAt: string
+  lastSeenAt: string | null
+}
+
+export interface PrintJob {
+  id: number
+  jobKey: string
+  documentType: 'SALE_RECEIPT' | 'PURCHASE' | 'TEST'
+  documentId: number | null
+  documentNumber: string | null
+  branchId: number
+  branchName: string | null
+  printerConfigId: number | null
+  printerName: string | null
+  printerIpAddress: string | null
+  printerPort: number | null
+  paperWidth: PaperWidth | null
+  printerPurpose: string | null
+  channel: PrintJobChannel
+  trigger: PrintJobTrigger
+  status: PrintJobStatus
+  attempts: number
+  errorMessage: string | null
+  createdBy: string | null
+  createdAt: string
+  printedAt: string | null
+  duplicate: boolean
+}
+
+export interface PrintJobRequest {
+  documentType: 'SALE_RECEIPT'
+  documentId: number
+  channel: PrintJobChannel
+  trigger: PrintJobTrigger
+  printerConfigId?: number | null
+}
+

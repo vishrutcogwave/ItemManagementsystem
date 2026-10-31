@@ -1,0 +1,34 @@
+[Version]
+Class=IEXPRESS
+SEDVersion=3
+[Options]
+PackagePurpose=InstallApp
+ShowInstallProgramWindow=0
+HideExtractAnimation=1
+UseLongFileName=1
+InsideCompressed=0
+CAB_FixedSize=0
+CAB_ResvCodeSigning=0
+RebootMode=N
+InstallPrompt=
+DisplayLicense=
+FinishMessage=Item Management Print Bridge is installed. Use the printer icon in the system tray to copy the bridge key, then paste it in Settings - Printers.
+TargetName=D:\vishrut\Clone\ItemManagementSystem\bridges\windows\dist\ItemManagementPrintBridgeSetup.exe
+FriendlyName=Item Management Print Bridge
+AppLaunched=Install.cmd
+PostInstallCmd=<None>
+AdminQuietInstCmd=
+UserQuietInstCmd=
+SourceFiles=SourceFiles
+[Strings]
+FILE0="ItemManagementPrintBridge.exe"
+FILE1="Install.cmd"
+FILE2="install.ps1"
+FILE3="README.txt"
+[SourceFiles]
+SourceFiles0=D:\vishrut\Clone\ItemManagementSystem\bridges\windows\installer\
+[SourceFiles0]
+%FILE0%=
+%FILE1%=
+%FILE2%=
+%FILE3%=

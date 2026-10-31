@@ -8,6 +8,8 @@ No application source, schema, migration, package or configuration was changed t
 
 **Operational quick start:** [09-owner-build-and-hosting-runbook.md](09-owner-build-and-hosting-runbook.md) — owner account and login, separate frontend/backend builds, hosted-server setup and table creation in one document.
 
+**Silent thermal printing:** [10-silent-thermal-printing.md](10-silent-thermal-printing.md) — Windows and Android print bridges, website printer/pairing setup, security model, test results and troubleshooting.
+
 **Full production deployment:** [PRODUCTION-DEPLOYMENT-GUIDE.md](PRODUCTION-DEPLOYMENT-GUIDE.md) — the complete 15-section manual for a new Ubuntu Server (with a Windows Server alternative): downloads, PostgreSQL, exact SQL, embedded-to-standalone migration, builds, NGINX, SSL, Platform Owner creation, startup, first store, backup/restore and the go-live checklist.
 
 ---

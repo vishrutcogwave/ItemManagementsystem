@@ -27,6 +27,9 @@ const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ 
 const TransfersPage = lazy(() => import('./pages/TransfersPage').then((m) => ({ default: m.TransfersPage })))
 const LowStockPage = lazy(() => import('./pages/LowStockPage').then((m) => ({ default: m.LowStockPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage })))
+const PrintHistoryPage = lazy(() =>
+  import('./pages/PrintHistoryPage').then((m) => ({ default: m.PrintHistoryPage })),
+)
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const PlatformStoresPage = lazy(() =>
   import('./pages/PlatformStoresPage').then((m) => ({ default: m.PlatformStoresPage })),
@@ -212,9 +215,17 @@ export default function App() {
             }
           />
           <Route
+            path="print-history"
+            element={
+              <RequirePermission permission="SALES_VIEW">
+                <PrintHistoryPage />
+              </RequirePermission>
+            }
+          />
+          <Route
             path="settings"
             element={
-              <RequirePermission anyOf={['STORE_VIEW', 'USER_VIEW', 'ROLE_VIEW', 'BRANCH_VIEW']}>
+              <RequirePermission anyOf={['STORE_VIEW', 'USER_VIEW', 'ROLE_VIEW', 'BRANCH_VIEW', 'PRINTER_VIEW']}>
                 <SettingsPage />
               </RequirePermission>
             }

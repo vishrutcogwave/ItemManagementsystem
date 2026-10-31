@@ -10,12 +10,12 @@ import {
 } from '../components/ui'
 import { useApi } from '../hooks/useApi'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
-import { printSaleReceipt } from '../lib/documents'
 import { money, qty, today } from '../lib/format'
+import { autoPrintSale, printSaleReceiptForDevice } from '../services/printerService'
 import { billPreview, isInterState } from '../lib/tax'
 import { unitOptionsFor } from '../lib/units'
 import { useAuthStore } from '../store/auth'
-import { notify } from '../store/ui'
+import { notify, notifyError } from '../store/ui'
 import type { Item, PaymentMethod, Sale, Unit } from '../types'
 
 interface LineForm {
@@ -44,6 +44,7 @@ const toNumber = (value: string) => {
 
 export function SalesEntryPage() {
   const { branches, selectedBranchId, store } = useAuthStore()
+  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
   const [branchId, setBranchId] = useState<number | ''>(selectedBranchId ?? branches[0]?.id ?? '')
   const [salesDate, setSalesDate] = useState(today())
   const [customerName, setCustomerName] = useState('')
@@ -141,6 +142,9 @@ export function SalesEntryPage() {
       notify(`Sale ${data.salesNumber} completed`)
       setCompletedSale(data)
       reset()
+      void autoPrintSale(data, storeInfo).then((outcome) => {
+        if (outcome?.status === 'FAILED') notifyError(outcome.message ?? 'The receipt could not be printed')
+      })
     } catch (err) {
       setFormError(errorMessage(err))
       setErrors(fieldErrorsOf(err))
@@ -149,8 +153,13 @@ export function SalesEntryPage() {
     }
   }
 
-  const print = (sale: Sale) =>
-    printSaleReceipt(sale, { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber })
+  const print = async (sale: Sale) => {
+    const outcome = await printSaleReceiptForDevice(sale, storeInfo)
+    if (!outcome) return
+    if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
+    else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
+    else if (outcome.message) notifyError(outcome.message)
+  }
 
   return (
     <div>
@@ -454,7 +463,7 @@ export function SalesEntryPage() {
                 variant="outline"
                 className="flex-1"
                 icon={<Printer className="h-4 w-4" />}
-                onClick={() => print(completedSale)}
+                onClick={() => void print(completedSale)}
               >
                 Print receipt
               </Button>

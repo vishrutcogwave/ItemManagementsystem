@@ -47,7 +47,9 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/login", "/api/auth/register-store", "/error").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/register-store",
+                                "/api/printing/devices/pair", "/api/printing/device/config",
+                                "/error").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->

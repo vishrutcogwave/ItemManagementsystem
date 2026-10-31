@@ -22,8 +22,8 @@ import {
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage } from '../lib/api'
-import { printSaleReceipt } from '../lib/documents'
 import { formatDate, formatDateTime, money, qty, today } from '../lib/format'
+import { printSaleReceiptForDevice } from '../services/printerService'
 import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
 import type { PageResponse, Sale } from '../types'
@@ -33,6 +33,7 @@ export function SalesPage() {
   const { selectedBranchId, hasPermission, store } = useAuthStore()
   const canManage = hasPermission('SALES_MANAGE')
   const branchId = selectedBranchId
+  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -153,7 +154,10 @@ export function SalesPage() {
             onClick={async () => {
               try {
                 const response = await api.get<Sale>(`/sales/${row.id}`)
-                printSaleReceipt(response.data, { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber })
+                const outcome = await printSaleReceiptForDevice(response.data, storeInfo)
+                if (outcome?.status === 'PRINTED') notify('Receipt sent to the printer')
+                else if (outcome?.status === 'DUPLICATE') notify('This receipt was already printed')
+                else if (outcome?.message) notifyError(outcome.message)
               } catch (err) {
                 notifyError(errorMessage(err))
               }
@@ -290,9 +294,12 @@ export function SalesPage() {
               <Button
                 variant="outline"
                 icon={<Printer className="h-4 w-4" />}
-                onClick={() =>
-                  printSaleReceipt(detail, { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber })
-                }
+                onClick={async () => {
+                  const outcome = await printSaleReceiptForDevice(detail, storeInfo)
+                  if (outcome?.status === 'PRINTED') notify('Receipt sent to the printer')
+                  else if (outcome?.status === 'DUPLICATE') notify('This receipt was already printed')
+                  else if (outcome?.message) notifyError(outcome.message)
+                }}
               >
                 Print receipt
               </Button>

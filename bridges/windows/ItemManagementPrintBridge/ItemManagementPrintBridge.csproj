@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ItemManagementPrintBridge</AssemblyName>
+    <RootNamespace>ItemManagement.PrintBridge</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>Item Management System</Authors>
+    <Product>Item Management Print Bridge</Product>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>
