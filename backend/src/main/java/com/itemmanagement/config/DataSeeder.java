@@ -28,7 +28,7 @@ public class DataSeeder implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (userRepository.findByUsernameIgnoreCaseAndStoreIdIsNull("platform").isEmpty()) {
+       if (userRepository.findByUsernameIgnoreCaseAndStoreIdIsNull("vishrutgaming").isEmpty()){
             Role role = roleRepository.findByStoreIdIsNullAndCode("PLATFORM_ADMIN")
                     .orElseThrow(() -> new IllegalStateException("PLATFORM_ADMIN role is missing"));
             userRepository.save(User.builder()
@@ -42,7 +42,7 @@ public class DataSeeder implements ApplicationRunner {
                     .roles(Set.of(role))
                     .branches(Set.of())
                     .build());
-            log.info("Seeded platform administrator (username: platform)");
+          log.info("Seeded platform administrator (username: vishrutgaming)");
         }
         demoDataSeeder.seed();
     }
