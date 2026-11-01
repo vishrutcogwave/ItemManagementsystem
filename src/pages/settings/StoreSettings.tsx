@@ -1,5 +1,5 @@
 import { Building2, CalendarDays, Mail, MapPin, Phone, Save, Store as StoreIcon, Users } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   Badge,
   Button,
@@ -39,6 +39,18 @@ const empty: FormState = {
   taxInclusive: false,
 }
 
+function formFrom(store: Store): FormState {
+  return {
+    storeName: store.storeName,
+    ownerName: store.ownerName,
+    email: store.email,
+    mobile: store.mobile,
+    address: store.address,
+    gstNumber: store.gstNumber ?? '',
+    taxInclusive: store.taxInclusive,
+  }
+}
+
 export function StoreSettings() {
   const hasPermission = useAuthStore((state) => state.hasPermission)
   const canManage = hasPermission('STORE_MANAGE')
@@ -53,23 +65,12 @@ export function StoreSettings() {
     [],
   )
 
-  const [form, setForm] = useState<FormState>(empty)
+  const [draft, setDraft] = useState<FormState | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (!data) return
-    setForm({
-      storeName: data.storeName,
-      ownerName: data.ownerName,
-      email: data.email,
-      mobile: data.mobile,
-      address: data.address,
-      gstNumber: data.gstNumber ?? '',
-      taxInclusive: data.taxInclusive,
-    })
-  }, [data])
+  const form = draft ?? (data ? formFrom(data) : empty)
 
   const save = async () => {
     const nextErrors: Record<string, string> = {}
@@ -96,6 +97,7 @@ export function StoreSettings() {
         taxInclusive: form.taxInclusive,
       })
       notify('Store profile updated')
+      setDraft(null)
       const session = useAuthStore.getState().store
       if (session) useAuthStore.setState({ store: { ...session, taxInclusive: form.taxInclusive } })
       reload()
@@ -126,21 +128,21 @@ export function StoreSettings() {
           )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Store name" required error={errors.storeName}>
-              <Input value={form.storeName} onChange={(event) => setForm({ ...form, storeName: event.target.value })} disabled={!canManage} />
+              <Input value={form.storeName} onChange={(event) => setDraft({ ...form, storeName: event.target.value })} disabled={!canManage} />
             </Field>
             <Field label="Owner name" required error={errors.ownerName}>
-              <Input value={form.ownerName} onChange={(event) => setForm({ ...form, ownerName: event.target.value })} disabled={!canManage} />
+              <Input value={form.ownerName} onChange={(event) => setDraft({ ...form, ownerName: event.target.value })} disabled={!canManage} />
             </Field>
             <Field label="Email" required error={errors.email}>
-              <Input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} disabled={!canManage} />
+              <Input type="email" value={form.email} onChange={(event) => setDraft({ ...form, email: event.target.value })} disabled={!canManage} />
             </Field>
             <Field label="Mobile" required error={errors.mobile}>
-              <Input value={form.mobile} onChange={(event) => setForm({ ...form, mobile: event.target.value })} disabled={!canManage} />
+              <Input value={form.mobile} onChange={(event) => setDraft({ ...form, mobile: event.target.value })} disabled={!canManage} />
             </Field>
             <Field label="GSTIN" error={errors.gstNumber}>
               <Input
                 value={form.gstNumber}
-                onChange={(event) => setForm({ ...form, gstNumber: event.target.value.toUpperCase() })}
+                onChange={(event) => setDraft({ ...form, gstNumber: event.target.value.toUpperCase() })}
                 className="uppercase"
                 disabled={!canManage}
               />
@@ -150,7 +152,7 @@ export function StoreSettings() {
             </Field>
           </div>
           <Field label="Address" required error={errors.address}>
-            <Textarea value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} rows={2} disabled={!canManage} />
+            <Textarea value={form.address} onChange={(event) => setDraft({ ...form, address: event.target.value })} rows={2} disabled={!canManage} />
           </Field>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
@@ -165,7 +167,7 @@ export function StoreSettings() {
               </div>
               <Toggle
                 checked={form.taxInclusive}
-                onChange={(checked) => setForm({ ...form, taxInclusive: checked })}
+                onChange={(checked) => setDraft({ ...form, taxInclusive: checked })}
                 label={form.taxInclusive ? 'Inclusive' : 'Exclusive'}
                 disabled={!canManage}
               />

@@ -412,7 +412,7 @@ export function InventoryPage() {
             <div className="flex flex-wrap items-center gap-2.5">
               <SearchInput
                 className="w-full sm:w-64"
-                placeholder="Search item or code…"
+                placeholder="Search item, code or barcode…"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value)

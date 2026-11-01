@@ -13,7 +13,8 @@ public record AuthResponse(
         Set<String> roles,
         Set<String> permissions,
         boolean allBranches,
-        boolean platformAdmin
+        boolean platformAdmin,
+        boolean mustChangePassword
 ) {
     public record UserProfile(Long id, String username, String fullName, String email, String mobile) {
     }

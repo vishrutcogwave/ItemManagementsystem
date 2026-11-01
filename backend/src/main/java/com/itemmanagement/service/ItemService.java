@@ -11,6 +11,7 @@ import com.itemmanagement.entity.InventoryTransaction;
 import com.itemmanagement.entity.Item;
 import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.TaxMaster;
+import com.itemmanagement.entity.enums.BarcodeFormat;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchInventoryRepository;
@@ -23,9 +24,9 @@ import com.itemmanagement.repository.TaxMasterRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +49,7 @@ public class ItemService {
     private final BranchInventoryRepository inventoryRepository;
     private final InventoryTransactionRepository transactionRepository;
     private final AuditService auditService;
+    private final BarcodeService barcodeService;
 
     @Transactional(readOnly = true)
     public PageResponse<ItemResponse> list(String search, Long categoryId, StoreStatus status,
@@ -56,7 +58,7 @@ public class ItemService {
         Map<Long, Category> categories = categories(storeId);
         Map<Long, TaxMaster> taxes = taxes(storeId);
         Page<Item> items = itemRepository.search(storeId, categoryId, status, clean(search),
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(items, item -> toResponse(item, categories, taxes));
     }
 
@@ -79,6 +81,30 @@ public class ItemService {
         return toResponse(item, categories(storeId), taxes(storeId));
     }
 
+    @Transactional(readOnly = true)
+    public ItemResponse byBarcode(String barcode) {
+        Long storeId = TenantContext.storeId();
+        String value = barcode == null ? "" : barcode.trim();
+        Item item = itemRepository.findByStoreIdAndBarcode(storeId, value)
+                .orElseThrow(() -> ApiException.notFound("No item uses this barcode"));
+        return toResponse(item, categories(storeId), taxes(storeId));
+    }
+
+    @Transactional
+    public ItemResponse regenerateBarcode(Long id, String rawFormat) {
+        Long storeId = TenantContext.storeId();
+        Item item = find(id, storeId);
+        BarcodeFormat format = barcodeService.parseFormat(rawFormat, BarcodeFormat.CODE128);
+        BarcodeService.ResolvedBarcode generated = barcodeService.generate(storeId, format);
+        String previous = item.getBarcode();
+        item.setBarcode(generated.value());
+        item.setBarcodeFormat(generated.format());
+        itemRepository.save(item);
+        auditService.log("UPDATE", "ITEM", id, "Barcode changed from " + previous
+                + " to " + generated.value() + " (" + generated.format() + ")");
+        return toResponse(item, categories(storeId), taxes(storeId));
+    }
+
     @Transactional
     public ItemResponse create(ItemResponse.Request request) {
         Long storeId = TenantContext.storeId();
@@ -88,11 +114,15 @@ public class ItemService {
         if (itemRepository.existsByStoreIdAndItemCodeIgnoreCase(storeId, code)) {
             throw ApiException.conflict("An item with this code already exists");
         }
+        BarcodeService.ResolvedBarcode barcode = barcodeService.resolveForCreate(
+                storeId, request.barcode(), request.barcodeFormat());
         Item item = itemRepository.save(Item.builder()
                 .storeId(storeId)
                 .categoryId(category.getId())
                 .taxId(tax.getId())
                 .itemCode(code)
+                .barcode(barcode.value())
+                .barcodeFormat(barcode.format())
                 .itemName(request.itemName().trim())
                 .description(request.description() == null || request.description().isBlank()
                         ? null : request.description().trim())
@@ -116,9 +146,13 @@ public class ItemService {
                 && itemRepository.existsByStoreIdAndItemCodeIgnoreCase(storeId, code)) {
             throw ApiException.conflict("An item with this code already exists");
         }
+        BarcodeService.ResolvedBarcode barcode = barcodeService.resolveForUpdate(
+                storeId, request.barcode(), request.barcodeFormat(), item);
         item.setCategoryId(category.getId());
         item.setTaxId(tax.getId());
         item.setItemCode(code);
+        item.setBarcode(barcode.value());
+        item.setBarcodeFormat(barcode.format());
         item.setItemName(request.itemName().trim());
         item.setDescription(request.description() == null || request.description().isBlank()
                 ? null : request.description().trim());
@@ -210,7 +244,8 @@ public class ItemService {
         return itemRepository.findByStoreIdAndStatusOrderByItemName(storeId, StoreStatus.ACTIVE).stream()
                 .filter(item -> categoryId == null || item.getCategoryId().equals(categoryId))
                 .filter(item -> needle == null || item.getItemName().toLowerCase().contains(needle)
-                        || item.getItemCode().toLowerCase().contains(needle))
+                        || item.getItemCode().toLowerCase().contains(needle)
+                        || item.getBarcode().toLowerCase().contains(needle))
                 .map(item -> {
                     BranchInventory inv = inventories.get(item.getId());
                     BigDecimal stock = inv == null ? BigDecimal.ZERO : inv.getCurrentStock();
@@ -218,7 +253,8 @@ public class ItemService {
                     BigDecimal price = item.getRate();
                     Category category = categories.get(item.getCategoryId());
                     TaxMaster tax = taxes.get(item.getTaxId());
-                    return new PosItemResponse(item.getId(), item.getItemCode(), item.getItemName(),
+                    return new PosItemResponse(item.getId(), item.getItemCode(), item.getBarcode(),
+                            item.getBarcodeFormat().name(), item.getItemName(),
                             item.getCategoryId(), category == null ? "" : category.getCategoryName(),
                             item.getBaseUnit().name(), price, stock, stock.compareTo(min) <= 0,
                             item.getTaxId(), tax == null ? "" : tax.getTaxName(),
@@ -262,7 +298,10 @@ public class ItemService {
                                     Map<Long, TaxMaster> taxes) {
         Category category = categories.get(item.getCategoryId());
         TaxMaster tax = taxes.get(item.getTaxId());
-        return new ItemResponse(item.getId(), item.getItemCode(), item.getItemName(),
+        return new ItemResponse(item.getId(), item.getItemCode(), item.getBarcode(),
+                item.getBarcodeFormat().name(),
+                BarcodeService.source(item.getBarcode(), item.getBarcodeFormat()).name(),
+                item.getItemName(),
                 item.getDescription(), item.getCategoryId(),
                 category == null ? "" : category.getCategoryName(),
                 item.getTaxId(), tax == null ? "" : tax.getTaxName(),

@@ -2,6 +2,7 @@ export type StoreStatus = 'ACTIVE' | 'INACTIVE'
 export type TaxType = 'GST' | 'EXEMPT'
 export type Unit = 'LITER' | 'ML' | 'KG' | 'GRAM' | 'PIECE' | 'DOZEN' | 'PACKET' | 'BOX' | 'BOTTLE'
 export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'CREDIT'
+export type BarcodeFormat = 'CODE128' | 'EAN13'
 export type PurchaseStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED'
 export type SaleStatus = 'COMPLETED' | 'CANCELLED'
 export type TransferStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'DISPATCHED' | 'RECEIVED' | 'REJECTED' | 'CANCELLED'
@@ -33,8 +34,8 @@ export interface StatusRequest {
 }
 
 export interface AuthResponse {
-  token: string
-  tokenType: string
+  token: string | null
+  tokenType: string | null
   expiresIn: number
   user: {
     id: number
@@ -60,6 +61,7 @@ export interface AuthResponse {
   permissions: string[]
   allBranches: boolean
   platformAdmin: boolean
+  mustChangePassword: boolean
 }
 
 export interface LoginRequest {
@@ -177,6 +179,9 @@ export interface ImportBatch {
 export interface Item {
   id: number
   itemCode: string
+  barcode: string
+  barcodeFormat: BarcodeFormat
+  barcodeSource: 'INTERNAL' | 'GS1'
   itemName: string
   description: string | null
   categoryId: number
@@ -194,6 +199,8 @@ export interface Item {
 
 export interface ItemRequest {
   itemCode: string
+  barcode?: string
+  barcodeFormat?: BarcodeFormat
   itemName: string
   description?: string
   categoryId: number | ''
@@ -356,6 +363,52 @@ export interface Store {
   maxBranches: number
   remainingBranches: number
   subscriptionExpired: boolean
+}
+
+export interface PlatformAccount {
+  id: number
+  storeId: number
+  storeCode: string | null
+  storeName: string | null
+  username: string
+  fullName: string
+  email: string
+  mobile: string | null
+  status: StoreStatus
+  roles: { id: number; code: string; name: string }[]
+  owner: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PlatformPasswordReset {
+  userId: number
+  username: string
+  storeCode: string | null
+  temporaryPassword: string
+  generatedAt: string
+}
+
+export interface CredentialHistoryEntry {
+  id: number
+  action: string
+  actorUsername: string | null
+  details: string | null
+  createdAt: string
+}
+
+export interface AuditLogEntry {
+  id: number
+  storeId: number | null
+  storeCode: string | null
+  storeName: string | null
+  userId: number | null
+  username: string | null
+  action: string
+  entityType: string | null
+  entityId: number | null
+  details: string | null
+  createdAt: string
 }
 
 export interface SubscriptionSummary {
@@ -649,6 +702,8 @@ export interface TransferRequest {
 export interface PosItem {
   id: number
   itemCode: string
+  barcode: string
+  barcodeFormat: BarcodeFormat
   itemName: string
   categoryId: number
   categoryName: string

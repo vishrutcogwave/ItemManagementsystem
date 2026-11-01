@@ -42,6 +42,14 @@ public class User {
     @Column(nullable = false, length = 20)
     private StoreStatus status;
 
+    @Builder.Default
+    @Column(name = "must_change_password", nullable = false)
+    private boolean mustChangePassword = false;
+
+    @Builder.Default
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion = 0;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

@@ -33,6 +33,11 @@ export function LoginPage() {
         password,
       })
       setSession(data)
+      if (data.mustChangePassword) {
+        notify('Set a new password before continuing')
+        navigate('/change-password', { replace: true })
+        return
+      }
       notify(`Welcome back, ${data.user.fullName.split(' ')[0]}`)
       navigate(data.platformAdmin ? '/platform/stores' : '/', { replace: true })
     } catch (err) {

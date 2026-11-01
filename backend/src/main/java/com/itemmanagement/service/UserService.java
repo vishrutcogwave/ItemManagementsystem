@@ -12,11 +12,12 @@ import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.PermissionRepository;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
+import com.itemmanagement.security.PasswordPolicy;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,13 +37,14 @@ public class UserService {
     private final BranchRepository branchRepository;
     private final PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicy passwordPolicy;
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
     public PageResponse<UserResponse> list(String search, StoreStatus status, int page, int size) {
         Long storeId = TenantContext.storeId();
         Page<User> users = userRepository.search(storeId, clean(search), status,
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(users, this::toResponse);
     }
 
@@ -58,6 +60,7 @@ public class UserService {
         if (userRepository.existsByStoreIdAndUsernameIgnoreCase(storeId, username)) {
             throw ApiException.conflict("Username is already taken for this store");
         }
+        passwordPolicy.validate(request.password(), username, request.email());
         Role role = role(storeId, request.roleId());
         Set<Branch> branches = branches(storeId, request.branchIds(), role);
         User user = userRepository.save(User.builder()
@@ -94,14 +97,17 @@ public class UserService {
         if (request.status() != null) {
             user.setStatus(request.status());
         }
-        if (request.password() != null && !request.password().isBlank()) {
-            if (request.password().length() < 8) {
-                throw ApiException.badRequest("Password must be at least 8 characters");
-            }
+        boolean passwordChangedByAdmin = request.password() != null && !request.password().isBlank();
+        if (passwordChangedByAdmin) {
+            passwordPolicy.validate(request.password(), user.getUsername(), request.email());
             user.setPasswordHash(passwordEncoder.encode(request.password()));
+            user.setMustChangePassword(true);
+            user.setTokenVersion(user.getTokenVersion() + 1);
         }
         userRepository.save(user);
-        auditService.log("UPDATE", "USER", userIdSafe(user), "Updated user " + user.getUsername());
+        auditService.log("UPDATE", "USER", userIdSafe(user),
+                "Updated user " + user.getUsername()
+                        + (passwordChangedByAdmin ? "; password reset by an administrator and change forced" : ""));
         return toResponse(user);
     }
 

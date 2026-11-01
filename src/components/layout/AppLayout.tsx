@@ -1,4 +1,4 @@
-import { Building2, ChevronDown, LogOut, Menu, Plus, Store, X } from 'lucide-react'
+import { Building2, ChevronDown, KeyRound, LogOut, Menu, Plus, Store, X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api, SUBSCRIPTION_EXPIRED_EVENT, type SubscriptionExpiredDetail } from '../../lib/api'
@@ -92,8 +92,20 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             <p className="truncate text-[10px] text-slate-500">{user?.email}</p>
           </div>
           <button
+            onClick={() => {
+              onNavigate?.()
+              navigate('/change-password')
+            }}
+            title="Change password"
+            aria-label="Change password"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
+          >
+            <KeyRound className="h-4 w-4" />
+          </button>
+          <button
             onClick={handleLogout}
             title="Sign out"
+            aria-label="Sign out"
             className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
           >
             <LogOut className="h-4 w-4" />
@@ -202,7 +214,9 @@ export function AppLayout() {
   }, [platformAdmin])
 
   useEffect(() => {
-    if (!platformAdmin) void checkSubscription()
+    if (platformAdmin) return
+    const timer = window.setTimeout(() => void checkSubscription(), 0)
+    return () => window.clearTimeout(timer)
   }, [platformAdmin, checkSubscription])
 
   useEffect(() => {

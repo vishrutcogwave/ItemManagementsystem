@@ -1,5 +1,10 @@
 # 15. API Reference
 
+> **Superseded 2026-11-01.** This older reference does not include `POST /api/auth/change-password`,
+> `GET /api/health`, `GET /api/version`, the platform audit endpoints, cookie-based sessions or the
+> barcode-source field. Use `PROJECT_DOCUMENTATION/API_DOCUMENTATION.md` (24 controllers, 133
+> mappings) as the current source of truth.
+
 > **Documentation status.** Every endpoint below exists in the current controllers. Paths,
 > methods, parameters, permissions and field names were read from
 > `controller/*.java` and `dto/**/*.java`. No endpoint was invented; anything absent is

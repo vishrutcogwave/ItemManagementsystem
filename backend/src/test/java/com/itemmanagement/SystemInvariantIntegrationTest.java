@@ -306,6 +306,25 @@ class SystemInvariantIntegrationTest {
         call(HttpMethod.POST, "/api/transfers/" + transferId + "/receive", null, session.token(), HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void transferValuationFollowsSourceAverageCostWhenSourceStockIsEmptied() {
+        Session session = registerStore();
+        long categoryId = createCategory(session, "Transfer value");
+        ItemRef item = createItem(session, categoryId, "TV");
+        long supplierId = createSupplier(session, "TV");
+        long destination = createBranch(session, "BR2");
+        purchase(session, supplierId, item.id(), "5", "COMPLETED");
+
+        long transferId = transfer(session, destination, item.id(), "5").get("id").asLong();
+        call(HttpMethod.POST, "/api/transfers/" + transferId + "/approve", null, session.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/transfers/" + transferId + "/dispatch", null, session.token(), HttpStatus.OK);
+        assertEquals(0, stockOf(session, item.code()).compareTo(BigDecimal.ZERO));
+        call(HttpMethod.POST, "/api/transfers/" + transferId + "/receive", null, session.token(), HttpStatus.OK);
+
+        JsonNode destinationRow = inventoryRow(session, destination, item.code());
+        assertMoney(destinationRow.get("stockValue"), "50.00");
+    }
+
     // ---------- authorization ----------
 
     @Test
@@ -513,6 +532,11 @@ class SystemInvariantIntegrationTest {
         assertEquals(EXPIRED_MESSAGE, blocked.get("message").asText());
         assertEquals("support@platform.test", blocked.get("contactEmail").asText());
         assertEquals("9000000010", blocked.get("contactPhone").asText());
+
+        // The allowlist keeps health, version and session endpoints reachable while expired.
+        call(HttpMethod.GET, "/api/health", null, null, HttpStatus.OK);
+        call(HttpMethod.GET, "/api/version", null, null, HttpStatus.OK);
+        call(HttpMethod.GET, "/api/auth/me", null, store.token(), HttpStatus.OK);
 
         // Store users can still sign in and read the expiry summary.
         call(HttpMethod.POST, "/api/auth/login",
@@ -903,6 +927,15 @@ class SystemInvariantIntegrationTest {
                 null, session.token(), HttpStatus.OK);
         JsonNode content = page.get("content");
         return content.isEmpty() ? BigDecimal.ZERO : content.get(0).get("currentStock").decimalValue();
+    }
+
+    private JsonNode inventoryRow(Session session, long branchId, String itemCode) {
+        JsonNode page = call(HttpMethod.GET,
+                "/api/inventory?branchId=" + branchId + "&search=" + itemCode + "&size=5",
+                null, session.token(), HttpStatus.OK);
+        JsonNode content = page.get("content");
+        assertTrue(!content.isEmpty(), "Inventory row must exist for " + itemCode);
+        return content.get(0);
     }
 
     // ---------- HTTP plumbing ----------

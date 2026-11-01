@@ -2,7 +2,6 @@ export { Button } from './Button'
 export { Field, Input, Select, Textarea, Checkbox, Toggle, SearchInput } from './form'
 export {
   Badge,
-  statusTone,
   StatusBadge,
   Card,
   PageHeader,

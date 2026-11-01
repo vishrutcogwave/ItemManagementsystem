@@ -7,6 +7,21 @@ plugins {
 group = 'com.itemmanagement'
 version = '1.0.0'
 
+def gitCommit = providers.exec {
+    commandLine 'git', 'rev-parse', '--short', 'HEAD'
+    ignoreExitValue = true
+}.standardOutput.asText.map { it.trim() }.getOrElse('')
+
+springBoot {
+    buildInfo {
+        properties {
+            additional = [
+                    'git.commit': gitCommit ?: 'unknown'
+            ]
+        }
+    }
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)

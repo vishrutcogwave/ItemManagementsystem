@@ -21,10 +21,10 @@ import com.itemmanagement.repository.SaleRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -131,9 +131,9 @@ public class PrintJobService {
     public PageResponse<PrintJobResponse> history(int page, int size, String statusFilter, Long branchId) {
         Long storeId = TenantContext.storeId();
         AuthUser user = TenantContext.user();
-        int safeSize = Math.min(Math.max(size, 1), 50);
-        int safePage = Math.max(page, 0);
-        Pageable pageable = PageRequest.of(safePage, safeSize);
+        int safeSize = Pagination.clampSize(size, 50);
+        int safePage = Pagination.clampPage(page);
+        Pageable pageable = Pagination.of(page, size, 50);
         PrintJobStatus status = statusFilter == null || statusFilter.isBlank()
                 ? null : parseStatusFilter(statusFilter);
 

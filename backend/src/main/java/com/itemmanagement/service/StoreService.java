@@ -11,9 +11,9 @@ import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +34,7 @@ public class StoreService {
     @Transactional(readOnly = true)
     public PageResponse<StoreResponse> list(String search, StoreStatus status, int page, int size) {
         Page<Store> stores = storeRepository.search(clean(search), status,
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(stores, this::toResponse);
     }
 

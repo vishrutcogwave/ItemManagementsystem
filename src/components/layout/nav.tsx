@@ -9,6 +9,7 @@ import {
   Percent,
   Printer,
   ReceiptText,
+  ScrollText,
   Settings,
   ShoppingCart,
   SquarePen,
@@ -16,6 +17,7 @@ import {
   Tags,
   Truck,
   TriangleAlert,
+  UserCog,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -78,7 +80,11 @@ export const storeNav: NavGroup[] = [
 export const platformNav: NavGroup[] = [
   {
     label: 'Platform',
-    items: [{ to: '/platform/stores', label: 'Stores', icon: Store, permission: 'PLATFORM_MANAGE' }],
+    items: [
+      { to: '/platform/stores', label: 'Stores', icon: Store, permission: 'PLATFORM_MANAGE' },
+      { to: '/platform/accounts', label: 'Store Accounts', icon: UserCog, permission: 'PLATFORM_MANAGE' },
+      { to: '/platform/audit', label: 'Audit Log', icon: ScrollText, permission: 'PLATFORM_MANAGE' },
+    ],
   },
 ]
 

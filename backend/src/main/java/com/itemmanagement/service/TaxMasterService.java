@@ -13,9 +13,9 @@ import com.itemmanagement.repository.TaxMasterRepository;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.GstCalculator;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +37,7 @@ public class TaxMasterService {
     public PageResponse<TaxMasterResponse> list(String search, StoreStatus status, int page, int size) {
         Long storeId = TenantContext.storeId();
         Page<TaxMaster> taxes = taxMasterRepository.search(storeId, clean(search), status,
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(taxes, tax -> toResponse(storeId, tax));
     }
 

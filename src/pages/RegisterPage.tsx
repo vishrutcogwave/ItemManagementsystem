@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { AuthShell } from '../components/layout/AuthShell'
 import { Button, Field, Input, Textarea } from '../components/ui'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
+import { passwordProblem, PASSWORD_HINT } from '../lib/password'
 import { notify } from '../store/ui'
 import type { RegisterStoreRequest } from '../types'
 
@@ -37,6 +38,12 @@ export function RegisterPage() {
     setLoading(true)
     setError(null)
     setErrors({})
+    const passwordError = passwordProblem(form.password, form.username, form.email)
+    if (passwordError) {
+      setErrors({ password: passwordError })
+      setLoading(false)
+      return
+    }
     try {
       await api.post('/auth/register-store', {
         ...form,
@@ -159,7 +166,7 @@ export function RegisterPage() {
                 invalid={Boolean(errors.username)}
               />
             </Field>
-            <Field label="Password" required error={errors.password} hint="At least 8 characters">
+            <Field label="Password" required error={errors.password} hint={PASSWORD_HINT}>
               <Input
                 type="password"
                 value={form.password}

@@ -1,35 +1,63 @@
 package com.itemmanagement.security;
 
+import com.itemmanagement.entity.RevokedToken;
+import com.itemmanagement.repository.RevokedTokenRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Persistent JWT revocation. Entries are written to the database so a logout
+ * or a rotated token stays invalid after a restart or on another instance.
+ */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class TokenBlacklistService {
 
-    private final Map<String, Instant> revoked = new ConcurrentHashMap<>();
+    private final RevokedTokenRepository repository;
 
+    @Transactional
     public void revoke(String tokenId, Instant expiresAt) {
-        if (tokenId != null && expiresAt != null) {
-            revoked.put(tokenId, expiresAt);
+        if (tokenId == null || expiresAt == null || expiresAt.isBefore(Instant.now())) {
+            return;
+        }
+        try {
+            repository.save(RevokedToken.builder()
+                    .jti(tokenId)
+                    .expiresAt(expiresAt)
+                    .revokedAt(Instant.now())
+                    .build());
+        } catch (DataIntegrityViolationException duplicate) {
+            // Revoking the same token twice is a no-op.
         }
     }
 
+    @Transactional(readOnly = true)
     public boolean isRevoked(String tokenId) {
         if (tokenId == null) return false;
-        Instant expiry = revoked.get(tokenId);
-        if (expiry == null) return false;
-        if (expiry.isBefore(Instant.now())) {
-            revoked.remove(tokenId);
-            return false;
+        try {
+            Instant expiry = repository.findExpiry(tokenId);
+            if (expiry == null) return false;
+            return !expiry.isBefore(Instant.now());
+        } catch (Exception e) {
+            // Fail closed: an unreadable blacklist must not authenticate a token.
+            log.warn("Unable to read the token revocation list: {}", e.getMessage());
+            return true;
         }
-        return true;
     }
 
+    @Scheduled(fixedDelayString = "${app.auth.blacklist-cleanup-ms:3600000}")
+    @Transactional
     public void purgeExpired() {
-        Instant now = Instant.now();
-        revoked.entrySet().removeIf(entry -> entry.getValue().isBefore(now));
+        int removed = repository.deleteExpiredBefore(Instant.now());
+        if (removed > 0) {
+            log.debug("Removed {} expired token revocation entries", removed);
+        }
     }
 }

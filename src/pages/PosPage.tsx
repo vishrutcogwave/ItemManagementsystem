@@ -10,7 +10,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -24,6 +24,7 @@ import {
   Select,
   Spinner,
 } from '../components/ui'
+import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage } from '../lib/api'
@@ -95,6 +96,8 @@ export function PosPage() {
   const [paid, setPaid] = useState('')
   const [selling, setSelling] = useState(false)
   const [completedSale, setCompletedSale] = useState<Sale | null>(null)
+  const [printingReceipt, setPrintingReceipt] = useState(false)
+  const billRef = useRef<HTMLDivElement>(null)
 
   const inclusive = cart[0]?.item.taxInclusive ?? Boolean(store?.taxInclusive)
   const branchState = branches.find((branch) => branch.id === branchId)?.state ?? null
@@ -117,24 +120,51 @@ export function PosPage() {
 
   const filteredItems = useMemo(() => items ?? [], [items])
 
-  const addToCart = (item: PosItem) => {
+  const addToCart = (item: PosItem): boolean => {
     if (Number(item.availableStock) <= 0) {
       notifyError(`${item.itemName} is out of stock at this branch`)
-      return
+      return false
     }
-    setCart((current) => {
-      const existing = current.find((line) => line.item.id === item.id)
-      if (existing) {
-        if (existing.quantity + 1 > Number(item.availableStock)) {
-          notifyError(`Only ${qty(item.availableStock)} ${item.unit} of ${item.itemName} available`)
-          return current
-        }
-        return current.map((line) =>
-          line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line,
-        )
+    const existing = cart.find((line) => line.item.id === item.id)
+    if (existing) {
+      if (existing.quantity + 1 > Number(item.availableStock)) {
+        notifyError(`Only ${qty(item.availableStock)} ${item.unit} of ${item.itemName} available`)
+        return false
       }
-      return [...current, { item, quantity: 1, rate: Number(item.rate) }]
-    })
+      setCart((current) =>
+        current.map((line) =>
+          line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line,
+        ),
+      )
+      return true
+    }
+    setCart((current) => [...current, { item, quantity: 1, rate: Number(item.rate) }])
+    return true
+  }
+
+  const scanBarcode = async (code: string) => {
+    if (!branchId) {
+      notifyError('Select a branch before scanning')
+      return false
+    }
+    try {
+      const { data } = await api.get<PosItem[]>('/items/pos', {
+        params: { branchId, search: code },
+      })
+      const match = data.find((item) => item.barcode.toLowerCase() === code.toLowerCase())
+      if (!match) {
+        notifyError(`No active item with barcode ${code} is available at this branch`)
+        return false
+      }
+      if (addToCart(match)) {
+        notify(`${match.itemName} added to the bill`)
+        return true
+      }
+      return false
+    } catch (err) {
+      notifyError(errorMessage(err))
+      return false
+    }
   }
 
   const setQuantity = (itemId: number, quantity: number) => {
@@ -219,16 +249,29 @@ export function PosPage() {
   const activeBranch = branches.find((branch) => branch.id === branchId)
 
   const printCompletedReceipt = async () => {
-    if (!completedSale) return
-    const outcome = await printSaleReceiptForDevice(completedSale, storeInfo)
-    if (!outcome) return
-    if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
-    else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
-    else if (outcome.status !== 'UNSUPPORTED' || outcome.message) notifyError(outcome.message ?? 'Unable to print receipt')
+    if (!completedSale || printingReceipt) return
+    setPrintingReceipt(true)
+    try {
+      const outcome = await printSaleReceiptForDevice(completedSale, storeInfo)
+      if (!outcome) return
+      if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
+      else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
+      else if (outcome.status !== 'UNSUPPORTED' || outcome.message) notifyError(outcome.message ?? 'Unable to print receipt')
+    } finally {
+      setPrintingReceipt(false)
+    }
+  }
+
+  const revealBill = () => {
+    billRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+    <div
+      className={`grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_390px] ${
+        cart.length > 0 ? 'pb-24 xl:pb-0' : ''
+      }`}
+    >
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-card sm:flex-row sm:items-center">
           <div className="relative flex-1">
@@ -236,7 +279,7 @@ export function PosPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search items by name or code…"
+              placeholder="Search items by name, code or barcode…"
               className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pr-3 pl-9 text-sm outline-none transition focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
@@ -257,6 +300,12 @@ export function PosPage() {
               {user?.fullName?.split(' ')[0]} · {activeBranch?.branchCode}
             </span>
           </div>
+          <ScanBar
+            className="w-full sm:w-72"
+            onDetected={scanBarcode}
+            placeholder="Scan barcode to add to the bill"
+            disabled={!branchId}
+          />
         </div>
 
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-0.5">
@@ -349,7 +398,8 @@ export function PosPage() {
         )}
       </div>
 
-      <Card className="flex h-fit flex-col overflow-hidden xl:sticky xl:top-20">
+      <div ref={billRef} className="scroll-mt-20 xl:sticky xl:top-20 xl:self-start">
+      <Card className="flex h-fit flex-col overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-4 w-4 text-brand-600" />
@@ -567,6 +617,7 @@ export function PosPage() {
           )}
         </div>
       </Card>
+      </div>
 
       <Modal
         open={Boolean(completedSale)}
@@ -580,7 +631,8 @@ export function PosPage() {
               New sale
             </Button>
             <Button
-              icon={<Printer className="h-4 w-4" />}
+              icon={printingReceipt ? undefined : <Printer className="h-4 w-4" />}
+              loading={printingReceipt}
               onClick={() => void printCompletedReceipt()}
             >
               Print receipt
@@ -655,15 +707,15 @@ export function PosPage() {
       </Modal>
 
       {cart.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)] xl:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)] xl:hidden">
           <div className="flex items-center gap-3">
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">{cart.length} items</p>
-              <p className="text-base font-bold text-slate-900">{money(grandTotal)}</p>
+              <p className="truncate text-base font-bold text-slate-900">{money(grandTotal)}</p>
             </div>
             <Button
               className="flex-1 justify-center"
-              onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
+              onClick={revealBill}
               icon={<ShoppingCart className="h-4 w-4" />}
             >
               Review & bill

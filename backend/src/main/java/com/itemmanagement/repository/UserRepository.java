@@ -51,4 +51,22 @@ public interface UserRepository extends JpaRepository<User, Long> {
             order by u.id
             """)
     List<User> findPlatformAdmins();
+
+    boolean existsByStoreIdAndUsernameIgnoreCaseAndIdNot(Long storeId, String username, Long id);
+
+    @Query("""
+            select u from User u
+            where u.storeId is not null
+              and (:storeId is null or u.storeId = :storeId)
+              and (:status is null or u.status = :status)
+              and (:search is null or lower(u.username) like lower(concat('%', :search, '%'))
+                or lower(u.fullName) like lower(concat('%', :search, '%'))
+                or lower(u.email) like lower(concat('%', :search, '%'))
+                or exists (select 1 from Store s where s.id = u.storeId
+                           and (lower(s.storeName) like lower(concat('%', :search, '%'))
+                             or lower(s.storeCode) like lower(concat('%', :search, '%')))))
+            order by u.username
+            """)
+    Page<User> searchStoreAccounts(@Param("storeId") Long storeId, @Param("search") String search,
+                                   @Param("status") StoreStatus status, Pageable pageable);
 }

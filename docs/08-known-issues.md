@@ -1,5 +1,11 @@
 # 24. Known Issues and Missing Features
 
+> **Superseded 2026-11-01.** Many issues listed below (hard-coded admin seeding, in-memory JWT
+> revocation, no login throttling, `localStorage` tokens, no self-service password change, no audit
+> viewer, no health endpoint, lint warnings, paging bounds) have been implemented or explicitly
+> deferred. Use `PROJECT_DOCUMENTATION/KNOWN_ISSUES_AND_RECOMMENDATIONS.md` for the current
+> K-01–K-27 status and evidence. This file is retained for historical context.
+
 **Document status:** review of the current repository as of 2026-10-30.
 **Scope:** defects, security gaps, accounting limitations and missing capabilities found by reading the source, migrations, configuration and tests. No source, schema or configuration was changed to produce this list.
 

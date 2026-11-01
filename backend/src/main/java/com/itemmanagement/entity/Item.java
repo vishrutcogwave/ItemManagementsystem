@@ -1,5 +1,6 @@
 package com.itemmanagement.entity;
 
+import com.itemmanagement.entity.enums.BarcodeFormat;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.Unit;
 import jakarta.persistence.*;
@@ -32,6 +33,13 @@ public class Item {
 
     @Column(nullable = false, length = 50, unique = true)
     private String itemCode;
+
+    @Column(nullable = false, length = 64)
+    private String barcode;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private BarcodeFormat barcodeFormat;
 
     @Column(nullable = false, length = 150)
     private String itemName;

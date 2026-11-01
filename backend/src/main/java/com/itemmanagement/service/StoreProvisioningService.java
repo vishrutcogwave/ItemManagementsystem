@@ -16,6 +16,7 @@ import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.TaxMasterRepository;
 import com.itemmanagement.repository.UserRepository;
+import com.itemmanagement.security.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -74,6 +75,7 @@ public class StoreProvisioningService {
     private final UserRepository userRepository;
     private final TaxMasterRepository taxMasterRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicy passwordPolicy;
 
     @Transactional
     public ProvisionedStore createStore(RegisterStoreRequest request, boolean platformCreated) {
@@ -84,6 +86,7 @@ public class StoreProvisioningService {
         if (storeRepository.existsByStoreCodeIgnoreCase(storeCode)) {
             throw ApiException.conflict("Store code is already registered");
         }
+        passwordPolicy.validate(request.password(), request.username(), request.email());
         LocalDate subscriptionStart = LocalDate.now(ZoneOffset.UTC);
         Store store = storeRepository.save(Store.builder()
                 .storeCode(storeCode)
@@ -167,6 +170,7 @@ public class StoreProvisioningService {
         if (userRepository.existsByStoreIdAndUsernameIgnoreCase(storeId, username)) {
             throw ApiException.conflict("Username is already taken for this store");
         }
+        passwordPolicy.validate(password, username, email);
         return userRepository.save(User.builder()
                 .storeId(storeId)
                 .username(username.trim())

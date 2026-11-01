@@ -16,6 +16,7 @@ import {
   Pagination,
   SearchInput,
   Select,
+  Spinner,
   StatusBadge,
   type Column,
 } from '../components/ui'
@@ -65,6 +66,25 @@ export function SalesPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [cancelSale, setCancelSale] = useState<Sale | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [printingId, setPrintingId] = useState<number | null>(null)
+  const [printingDetail, setPrintingDetail] = useState(false)
+
+  const printSale = async (sale: Sale, rowId?: number) => {
+    if (rowId !== undefined && printingId !== null) return
+    if (rowId === undefined && printingDetail) return
+    if (rowId !== undefined) setPrintingId(rowId)
+    else setPrintingDetail(true)
+    try {
+      const outcome = await printSaleReceiptForDevice(sale, storeInfo)
+      if (!outcome) return
+      if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
+      else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
+      else if (outcome.message) notifyError(outcome.message)
+    } finally {
+      if (rowId !== undefined) setPrintingId(null)
+      else setPrintingDetail(false)
+    }
+  }
 
   const viewSale = async (id: number) => {
     setDetailLoading(true)
@@ -145,8 +165,9 @@ export function SalesPage() {
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={() => viewSale(row.id)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
             title="View"
+            aria-label={`View invoice ${row.salesNumber}`}
           >
             <Eye className="h-3.5 w-3.5" />
           </button>
@@ -154,18 +175,17 @@ export function SalesPage() {
             onClick={async () => {
               try {
                 const response = await api.get<Sale>(`/sales/${row.id}`)
-                const outcome = await printSaleReceiptForDevice(response.data, storeInfo)
-                if (outcome?.status === 'PRINTED') notify('Receipt sent to the printer')
-                else if (outcome?.status === 'DUPLICATE') notify('This receipt was already printed')
-                else if (outcome?.message) notifyError(outcome.message)
+                await printSale(response.data, row.id)
               } catch (err) {
                 notifyError(errorMessage(err))
               }
             }}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            disabled={printingId !== null}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             title="Print receipt"
+            aria-label={`Print receipt for invoice ${row.salesNumber}`}
           >
-            <Printer className="h-3.5 w-3.5" />
+            {printingId === row.id ? <Spinner className="h-3.5 w-3.5" /> : <Printer className="h-3.5 w-3.5" />}
           </button>
         </div>
       ),
@@ -209,10 +229,10 @@ export function SalesPage() {
             <option value="COMPLETED">Completed</option>
             <option value="CANCELLED">Cancelled</option>
           </Select>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               type="date"
-              className="w-38"
+              className="w-38 min-w-0 flex-1 sm:flex-none"
               value={from}
               max={to || today()}
               onChange={(event) => {
@@ -223,7 +243,7 @@ export function SalesPage() {
             <span className="text-xs text-slate-400">to</span>
             <Input
               type="date"
-              className="w-38"
+              className="w-38 min-w-0 flex-1 sm:flex-none"
               value={to}
               min={from}
               max={today()}
@@ -293,13 +313,9 @@ export function SalesPage() {
             <>
               <Button
                 variant="outline"
-                icon={<Printer className="h-4 w-4" />}
-                onClick={async () => {
-                  const outcome = await printSaleReceiptForDevice(detail, storeInfo)
-                  if (outcome?.status === 'PRINTED') notify('Receipt sent to the printer')
-                  else if (outcome?.status === 'DUPLICATE') notify('This receipt was already printed')
-                  else if (outcome?.message) notifyError(outcome.message)
-                }}
+                icon={printingDetail ? undefined : <Printer className="h-4 w-4" />}
+                loading={printingDetail}
+                onClick={() => void printSale(detail)}
               >
                 Print receipt
               </Button>

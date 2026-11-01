@@ -7,6 +7,8 @@ const highlights = [
   { icon: BarChart3, title: 'Decisions with data', text: 'Daily sales, profit and low-stock insights across every branch.' },
 ]
 
+const COPYRIGHT_YEAR = new Date().getFullYear()
+
 export function AuthShell({
   children,
   title,
@@ -58,7 +60,7 @@ export function AuthShell({
         </div>
 
         <p className="relative text-[11px] text-slate-500">
-          © {new Date().getFullYear()} Item Management System · Secure JWT access with branch-level isolation
+          © {COPYRIGHT_YEAR} Item Management System · Secure JWT access with branch-level isolation
         </p>
       </div>
 

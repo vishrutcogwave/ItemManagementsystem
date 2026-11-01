@@ -14,6 +14,9 @@ import java.time.Instant;
 public record ItemResponse(
         Long id,
         String itemCode,
+        String barcode,
+        String barcodeFormat,
+        String barcodeSource,
         String itemName,
         String description,
         Long categoryId,
@@ -32,6 +35,9 @@ public record ItemResponse(
             @NotBlank(message = "Item code is required")
             @Pattern(regexp = "^[A-Za-z0-9._-]{2,50}$", message = "Use 2-50 letters, numbers, dot, underscore or hyphen")
             String itemCode,
+            @Size(max = 64, message = "Barcode cannot be longer than 64 characters")
+            String barcode,
+            String barcodeFormat,
             @NotBlank(message = "Item name is required") @Size(max = 150) String itemName,
             @Size(max = 255) String description,
             @NotNull(message = "Category is required") Long categoryId,
@@ -43,6 +49,11 @@ public record ItemResponse(
             @NotNull(message = "Minimum stock is required") @DecimalMin(value = "0", message = "Cannot be negative")
             BigDecimal minStockLevel,
             StoreStatus status
+    ) {
+    }
+
+    public record BarcodeRequest(
+            @NotBlank(message = "Barcode format is required") String format
     ) {
     }
 }

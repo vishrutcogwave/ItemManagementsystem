@@ -38,6 +38,23 @@ app:
     database: item_management_db
     clean: ${EMBEDDED_POSTGRES_CLEAN:false}
   seed-demo: ${SEED_DEMO:false}
+  build:
+    git-commit: ${GIT_COMMIT:unknown}
+  auth:
+    cookie-name: ${AUTH_COOKIE_NAME:ims_auth}
+    cookie-secure: ${AUTH_COOKIE_SECURE:false}
+    cookie-same-site: ${AUTH_COOKIE_SAME_SITE:Strict}
+    login-max-attempts: ${LOGIN_MAX_ATTEMPTS:5}
+    login-window-seconds: ${LOGIN_WINDOW_SECONDS:900}
+    login-lockout-seconds: ${LOGIN_LOCKOUT_SECONDS:900}
+    blacklist-cleanup-ms: ${TOKEN_BLACKLIST_CLEANUP_MS:3600000}
+  platform-admin:
+    provision: ${PROVISION_PLATFORM_ADMIN:false}
+    username: ${PLATFORM_ADMIN_USERNAME:}
+    password: ${PLATFORM_ADMIN_PASSWORD:}
+    email: ${PLATFORM_ADMIN_EMAIL:}
+    full-name: ${PLATFORM_ADMIN_FULL_NAME:Platform Administrator}
+    mobile: ${PLATFORM_ADMIN_MOBILE:}
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173}
 

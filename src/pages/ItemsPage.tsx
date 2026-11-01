@@ -1,4 +1,4 @@
-import { Boxes, Download, History, Package, Pencil, Plus, Power, Upload } from 'lucide-react'
+import { Barcode, Boxes, Download, History, Package, Pencil, Plus, Power, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -20,15 +20,19 @@ import {
   Textarea,
   type Column,
 } from '../components/ui'
+import { BarcodeLabelDialog } from '../components/barcode/BarcodeLabelDialog'
+import { BarcodeSvg } from '../components/barcode/BarcodeSvg'
 import { ItemImportDialog } from '../components/imports/ItemImportDialog'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
+import { BARCODE_FORMATS, validateBarcode } from '../lib/barcode'
 import { formatDateTime, money, qty, titleCase } from '../lib/format'
 import { UNIT_OPTIONS } from '../lib/units'
 import { useAuthStore } from '../store/auth'
 import { notify } from '../store/ui'
 import type {
+  BarcodeFormat,
   BranchStock,
   Category,
   InventoryTransaction,
@@ -41,6 +45,8 @@ import type {
 
 interface FormState {
   itemCode: string
+  barcode: string
+  barcodeFormat: BarcodeFormat
   itemName: string
   description: string
   categoryId: number | ''
@@ -53,6 +59,8 @@ interface FormState {
 
 const emptyForm: FormState = {
   itemCode: '',
+  barcode: '',
+  barcodeFormat: 'CODE128',
   itemName: '',
   description: '',
   categoryId: '',
@@ -115,12 +123,11 @@ export function ItemsPage() {
   const [stockItem, setStockItem] = useState<Item | null>(null)
   const [stock, setStock] = useState<BranchStock[] | null>(null)
   const [stockTxns, setStockTxns] = useState<InventoryTransaction[] | null>(null)
+  const [labelItem, setLabelItem] = useState<Item | null>(null)
 
   useEffect(() => {
     if (!stockItem) return
     let active = true
-    setStock(null)
-    setStockTxns(null)
     Promise.all([
       api.get<BranchStock[]>(`/items/${stockItem.id}/stock`).then((response) => response.data),
       api.get<InventoryTransaction[]>(`/items/${stockItem.id}/transactions`).then((response) => response.data),
@@ -172,6 +179,8 @@ export function ItemsPage() {
     setEditing(item)
     setForm({
       itemCode: item.itemCode,
+      barcode: item.barcode,
+      barcodeFormat: item.barcodeFormat,
       itemName: item.itemName,
       description: item.description ?? '',
       categoryId: item.categoryId,
@@ -194,6 +203,10 @@ export function ItemsPage() {
     if (!form.taxId) nextErrors.taxId = 'Select a tax slab'
     if (form.rate === '' || Number(form.rate) <= 0) nextErrors.rate = 'Rate must be greater than zero'
     if (form.minStockLevel === '') nextErrors.minStockLevel = 'Minimum stock is required'
+    if (form.barcode.trim()) {
+      const barcodeError = validateBarcode(form.barcode, form.barcodeFormat)
+      if (barcodeError) nextErrors.barcode = barcodeError
+    }
     if (Object.keys(nextErrors).length > 0) {
       setFormErrors(nextErrors)
       return
@@ -205,6 +218,8 @@ export function ItemsPage() {
     try {
       const payload: ItemRequest = {
         itemCode: form.itemCode.trim().toUpperCase(),
+        barcode: form.barcode.trim() || undefined,
+        barcodeFormat: form.barcodeFormat,
         itemName: form.itemName.trim(),
         description: form.description.trim() || undefined,
         categoryId: form.categoryId,
@@ -257,6 +272,10 @@ export function ItemsPage() {
             <p className="text-[11px] text-slate-400">
               {row.itemCode} · {row.categoryName}
             </p>
+            <p className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+              {row.barcode}
+              {row.barcodeSource === 'GS1' && <Badge tone="blue">GS1</Badge>}
+            </p>
           </div>
         </div>
       ),
@@ -284,7 +303,19 @@ export function ItemsPage() {
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
           <button
-            onClick={() => setStockItem(row)}
+            onClick={() => setLabelItem(row)}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            title="Barcode label"
+            aria-label={`Barcode label for ${row.itemName}`}
+          >
+            <Barcode className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => {
+              setStock(null)
+              setStockTxns(null)
+              setStockItem(row)
+            }}
             className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
             title="View stock"
           >
@@ -359,7 +390,7 @@ export function ItemsPage() {
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center">
           <SearchInput
             className="lg:w-72"
-            placeholder="Search by name or code…"
+            placeholder="Search by name, code or barcode…"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value)
@@ -470,6 +501,55 @@ export function ItemsPage() {
                 onChange={(event) => setForm({ ...form, itemName: event.target.value })}
                 placeholder="Milk 500 ml"
               />
+            </Field>
+            <Field
+              label="Barcode"
+              error={formErrors.barcode}
+              hint={
+                editing
+                  ? 'Edit only when printed labels must be replaced'
+                  : 'Leave blank to generate a unique barcode automatically'
+              }
+            >
+              <div className="space-y-2">
+                <Input
+                  value={form.barcode}
+                  onChange={(event) => setForm({ ...form, barcode: event.target.value })}
+                  placeholder="Auto-generated when blank"
+                  className="font-mono"
+                  maxLength={64}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {form.barcode.trim() && !validateBarcode(form.barcode, form.barcodeFormat) && (
+                  <div className="flex justify-center rounded-md border border-slate-200 bg-white p-1.5">
+                    <BarcodeSvg
+                      value={form.barcode.trim()}
+                      format={form.barcodeFormat}
+                      height={34}
+                      width={1.4}
+                      fontSize={10}
+                    />
+                  </div>
+                )}
+              </div>
+            </Field>
+            <Field
+              label="Barcode format"
+              hint="Code 128 is for in-store labels. Generated EAN-13 codes use the internal GS1 20–29 prefix; enter a registered GTIN only if the product already carries one"
+            >
+              <Select
+                value={form.barcodeFormat}
+                onChange={(event) =>
+                  setForm({ ...form, barcodeFormat: event.target.value as BarcodeFormat })
+                }
+              >
+                {BARCODE_FORMATS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Description" hint="Optional · shown in the Excel template" className="sm:col-span-2">
               <Textarea
@@ -651,6 +731,16 @@ export function ItemsPage() {
           </div>
         )}
       </Modal>
+
+      <BarcodeLabelDialog
+        key={labelItem?.id ?? 'none'}
+        item={labelItem}
+        onClose={() => setLabelItem(null)}
+        onUpdated={(updated) => {
+          setLabelItem(updated)
+          reload()
+        }}
+      />
 
       {importOpen && (
         <ItemImportDialog

@@ -64,6 +64,8 @@ public class SubscriptionAccessFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return path.startsWith("/api/auth/")
                 || path.equals("/api/auth")
+                || path.equals("/api/health")
+                || path.equals("/api/version")
                 || path.equals("/api/subscription/summary")
                 || path.equals("/error");
     }

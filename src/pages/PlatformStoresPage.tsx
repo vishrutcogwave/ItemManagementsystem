@@ -39,6 +39,7 @@ import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { formatDate, formatDateTime } from '../lib/format'
+import { passwordProblem, PASSWORD_HINT } from '../lib/password'
 import { notify, notifyError } from '../store/ui'
 import type {
   PageResponse,
@@ -199,7 +200,8 @@ export function PlatformStoresPage() {
       if (!/^[A-Za-z0-9._-]{3,40}$/.test(form.username.trim())) {
         nextErrors.username = 'Use 3-40 letters, numbers, dot, underscore or hyphen'
       }
-      if (form.password.length < 8) nextErrors.password = 'Password must be at least 8 characters'
+      const passwordError = passwordProblem(form.password, form.username.trim(), form.email.trim())
+      if (passwordError) nextErrors.password = passwordError
     }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
@@ -658,7 +660,7 @@ export function PlatformStoresPage() {
                     autoComplete="off"
                   />
                 </Field>
-                <Field label="Owner password" required error={errors.password} hint="At least 8 characters">
+                <Field label="Owner password" required error={errors.password} hint={PASSWORD_HINT}>
                   <Input
                     type="password"
                     value={form.password}

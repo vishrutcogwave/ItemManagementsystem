@@ -402,32 +402,40 @@ export function PrintersSettings() {
               <div className="flex items-center justify-end gap-1">
                 <button
                   onClick={() => void testPrinter(row)}
-                  disabled={testingId === row.id}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-                  title="Test connection"
+                  disabled={platform !== 'ANDROID' || testingId === row.id}
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 sm:h-8 sm:w-8"
+                  title={
+                    platform === 'ANDROID'
+                      ? 'Test connection'
+                      : 'Network printer tests run from the Android print bridge'
+                  }
+                  aria-label={`Test connection for ${row.printerName}`}
                 >
                   {testingId === row.id ? <Spinner className="h-3.5 w-3.5" /> : <Wifi className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   onClick={() => openEdit(row)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 sm:h-8 sm:w-8"
                   title="Edit"
+                  aria-label={`Edit ${row.printerName}`}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => void toggleStatus(row)}
-                  className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-slate-100 ${
+                  className={`flex h-9 w-9 items-center justify-center rounded-md transition hover:bg-slate-100 sm:h-8 sm:w-8 ${
                     row.status === 'ACTIVE' ? 'text-amber-500' : 'text-emerald-500'
                   }`}
                   title={row.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                  aria-label={`${row.status === 'ACTIVE' ? 'Deactivate' : 'Activate'} ${row.printerName}`}
                 >
                   <Power className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => setDeleting(row)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                  className="flex h-9 w-9 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 sm:h-8 sm:w-8"
                   title="Remove"
+                  aria-label={`Remove ${row.printerName}`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
