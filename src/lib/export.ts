@@ -152,6 +152,7 @@ export function printHtml(html: string, title: string): void {
   doc.open()
   doc.write(`<!doctype html><html><head><title>${title}</title><style>
     * { box-sizing: border-box; }
+    html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { margin: 0; padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; }
     h1, h2, h3 { margin: 0 0 6px; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }

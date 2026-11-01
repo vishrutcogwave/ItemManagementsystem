@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/auth'
 import { BranchesSettings } from './settings/BranchesSettings'
 import { PrintersSettings } from './settings/PrintersSettings'
 import { RolesSettings } from './settings/RolesSettings'
+import { SecuritySettings } from './settings/SecuritySettings'
 import { StoreSettings } from './settings/StoreSettings'
 import { UsersSettings } from './settings/UsersSettings'
 
@@ -21,6 +22,7 @@ export function SettingsPage() {
     if (hasPermission('USER_VIEW')) list.push({ key: 'users', label: 'Users' })
     if (hasPermission('ROLE_VIEW')) list.push({ key: 'roles', label: 'Roles & permissions' })
     if (hasPermission('PRINTER_VIEW')) list.push({ key: 'printers', label: 'Printers' })
+    list.push({ key: 'security', label: 'My security' })
     return list
   }, [hasPermission])
 
@@ -72,6 +74,7 @@ export function SettingsPage() {
       {active === 'users' && <UsersSettings />}
       {active === 'roles' && <RolesSettings />}
       {active === 'printers' && <PrintersSettings />}
+      {active === 'security' && <SecuritySettings />}
     </div>
   )
 }

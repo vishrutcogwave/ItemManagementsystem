@@ -1,5 +1,11 @@
 # 1–5. Project Overview, Architecture, Frontend, Backend and Embedded PostgreSQL
 
+> **Historical snapshot 2026-10-30.** This file predates V6 printing, V7 barcodes and V8 authentication
+> hardening (including the current permission count and controller count). Use
+> `PROJECT_DOCUMENTATION/SYSTEM_ARCHITECTURE.md`, `API_DOCUMENTATION.md` and
+> `ADMIN_DEPLOYMENT_GUIDE.md` as the current source of truth. This file is retained for historical
+> context.
+
 This file documents the application as it exists in the repository on 2026-10-30. It distinguishes **actual implementation** from **recommended improvements**; recommendations never appear as if they were already built.
 
 ---

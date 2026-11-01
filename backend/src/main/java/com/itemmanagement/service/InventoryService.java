@@ -23,12 +23,12 @@ import com.itemmanagement.repository.StockAdjustmentRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import com.itemmanagement.util.UnitConverter;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -106,7 +106,7 @@ public class InventoryService {
         }
         Page<InventoryTransaction> result = transactionRepository.search(storeId, branchId,
                 user.allBranches() ? null : user.branchIds(), itemId, clean(search),
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         Map<Long, Branch> branches = branchRepository.findByStoreIdOrderByBranchName(storeId).stream()
                 .collect(Collectors.toMap(Branch::getId, Function.identity()));
         Map<Long, Item> items = itemRepository.findByStoreIdOrderByItemName(storeId).stream()
@@ -277,7 +277,8 @@ public class InventoryService {
         List<Item> items = itemRepository.findByStoreIdOrderByItemName(storeId).stream()
                 .filter(item -> categoryId == null || item.getCategoryId().equals(categoryId))
                 .filter(item -> needle == null || item.getItemName().toLowerCase().contains(needle)
-                        || item.getItemCode().toLowerCase().contains(needle))
+                        || item.getItemCode().toLowerCase().contains(needle)
+                        || item.getBarcode().toLowerCase().contains(needle))
                 .toList();
         if (items.isEmpty()) {
             return List.of();

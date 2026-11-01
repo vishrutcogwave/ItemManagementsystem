@@ -2,6 +2,12 @@
 
 Production deployment runbook — Silent Thermal Printing release (Flyway **V6**).
 
+> **Historical note (2026-11-01).** This runbook predates the barcode (V7), platform-account and
+> authentication-hardening (V8) work. Its test count (42) and V6-only artifact references are stale.
+> Use `PROJECT_DOCUMENTATION/DEPLOYMENT_CHECKLIST.md`, `ADMIN_DEPLOYMENT_GUIDE.md`,
+> `SERVER_VERSION_COMPARISON.md` and `ROLLBACK_GUIDE.md` as the current deployment source of truth.
+> Nothing in this file has been executed against production.
+
 > **Approval gate:** this runbook is documentation only. Nothing in it has been executed against
 > production. Do not run Section B until the owner gives explicit approval and a fresh database
 > backup has been created and verified.

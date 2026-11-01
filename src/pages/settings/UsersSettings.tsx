@@ -21,6 +21,7 @@ import { useApi } from '../../hooks/useApi'
 import { useDebounce } from '../../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../../lib/api'
 import { formatDate, initials, titleCase } from '../../lib/format'
+import { passwordProblem, PASSWORD_HINT } from '../../lib/password'
 import { useAuthStore } from '../../store/auth'
 import { notify, notifyError } from '../../store/ui'
 import type { Branch, PageResponse, Role, User } from '../../types'
@@ -151,8 +152,10 @@ export function UsersSettings() {
     if (!form.fullName.trim()) nextErrors.fullName = 'Full name is required'
     if (!form.email.trim()) nextErrors.email = 'Email is required'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) nextErrors.email = 'Enter a valid email'
-    if (!editing && form.password.length < 8) nextErrors.password = 'Password must be at least 8 characters'
-    if (editing && form.password && form.password.length < 8) nextErrors.password = 'Password must be at least 8 characters'
+    if (!editing || form.password) {
+      const problem = passwordProblem(form.password, form.username, form.email)
+      if (problem) nextErrors.password = problem
+    }
     if (!form.roleId) nextErrors.roleId = 'Select a role'
     if (requiresBranch && form.branchIds.length === 0) nextErrors.branchIds = 'Assign at least one branch for this role'
     if (Object.keys(nextErrors).length > 0) {
@@ -431,7 +434,7 @@ export function UsersSettings() {
               label={editing ? 'New password' : 'Password'}
               required={!editing}
               error={errors.password}
-              hint={editing ? 'Leave blank to keep the current password' : 'At least 8 characters'}
+              hint={editing ? 'Leave blank to keep the current password' : PASSWORD_HINT}
             >
               <Input
                 type="password"

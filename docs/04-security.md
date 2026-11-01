@@ -1,5 +1,11 @@
 # 14. Multi-Store and Branch Security
 
+> **Superseded 2026-11-01.** The authentication/security hardening described in
+> `PROJECT_DOCUMENTATION/KNOWN_ISSUES_AND_RECOMMENDATIONS.md` (K-01–K-27) is not reflected in this
+> older section. Use `PROJECT_DOCUMENTATION/ADMIN_DEPLOYMENT_GUIDE.md` and
+> `PROJECT_DOCUMENTATION/API_DOCUMENTATION.md` as the current source of truth. This file is retained
+> for historical context.
+
 > **Documentation status.** This section was written by reading the security classes,
 > services, repositories, controllers and migrations in this repository. Nothing was
 > executed or changed. Findings marked **Needs correction** are real defects in the

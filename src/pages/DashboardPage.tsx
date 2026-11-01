@@ -36,6 +36,8 @@ function greeting(): string {
   return 'Good evening'
 }
 
+const TODAY_LABEL = formatDate(new Date().toISOString().slice(0, 10))
+
 function EmptyRow({ message }: { message: string }) {
   return <p className="px-4 py-6 text-center text-xs text-slate-400">{message}</p>
 }
@@ -60,7 +62,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow={formatDate(new Date().toISOString().slice(0, 10))}
+        eyebrow={TODAY_LABEL}
         title={`${greeting()}, ${user?.fullName?.split(' ')[0] ?? 'there'}`}
         subtitle={`${store?.storeName ?? 'Your store'} · ${branchLabel || 'All branches'}`}
         actions={

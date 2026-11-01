@@ -1,5 +1,11 @@
 # 6–8. Database Tables, ERD and Relationships
 
+> **Historical snapshot.** This file describes the schema only through Flyway V3. It does not include
+> the V4 subscription, V5 import, V6 printing, V7 barcode or V8 authentication tables/columns. Use
+> `PROJECT_DOCUMENTATION/DATABASE_DOCUMENTATION.md` and
+> `backend/src/main/resources/db/migration/V1__init.sql` … `V8__auth_hardening.sql` as the current
+> source of truth.
+
 This document describes the **actual** PostgreSQL schema after Flyway V1, V2 and V3. It does not describe an intended future schema. The consolidated DDL is in [sql/02_create_tables.sql](sql/02_create_tables.sql).
 
 ---

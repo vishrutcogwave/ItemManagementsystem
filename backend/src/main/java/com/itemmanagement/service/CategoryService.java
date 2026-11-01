@@ -9,9 +9,9 @@ import com.itemmanagement.repository.CategoryRepository;
 import com.itemmanagement.repository.ItemRepository;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +29,7 @@ public class CategoryService {
     public PageResponse<CategoryResponse> list(String search, StoreStatus status, int page, int size) {
         Long storeId = TenantContext.storeId();
         Page<Category> categories = categoryRepository.search(storeId, clean(search), status,
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(categories, category -> toResponse(storeId, category));
     }
 

@@ -38,8 +38,13 @@ public class JwtService {
     }
 
     public String generate(AuthUser user) {
+        return generate(user, 0);
+    }
+
+    public String generate(AuthUser user, int tokenVersion) {
         Instant now = Instant.now();
         Map<String, Object> claims = new LinkedHashMap<>();
+        claims.put("ver", tokenVersion);
         claims.put("storeId", user.storeId());
         claims.put("username", user.username());
         claims.put("fullName", user.fullName());

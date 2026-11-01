@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 public record PosItemResponse(
         Long id,
         String itemCode,
+        String barcode,
+        String barcodeFormat,
         String itemName,
         Long categoryId,
         String categoryName,

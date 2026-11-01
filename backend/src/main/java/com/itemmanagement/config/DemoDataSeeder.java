@@ -24,6 +24,7 @@ import com.itemmanagement.service.StoreProvisioningService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +37,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
+@Profile("!postgres")
 @RequiredArgsConstructor
 @Slf4j
 public class DemoDataSeeder {
@@ -50,7 +52,7 @@ public class DemoDataSeeder {
     private final TaxMasterRepository taxMasterRepository;
     private final StoreProvisioningService provisioningService;
 
-    @Value("${app.seed-demo:true}")
+    @Value("${app.seed-demo:false}")
     private boolean enabled;
 
     @Transactional
@@ -203,6 +205,8 @@ public class DemoDataSeeder {
                 .categoryId(categories.get(categoryName).getId())
                 .taxId(taxes.get(taxName).getId())
                 .itemCode(code)
+                .barcode("DEMO" + code)
+                .barcodeFormat(com.itemmanagement.entity.enums.BarcodeFormat.CODE128)
                 .itemName(name)
                 .baseUnit(unit)
                 .rate(new BigDecimal(rate))

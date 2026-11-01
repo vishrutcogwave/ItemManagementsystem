@@ -3,6 +3,7 @@ import type { ApiErrorPayload } from '../types'
 
 export const AUTH_STORAGE_KEY = 'ims-auth'
 export const UNAUTHORIZED_EVENT = 'ims:unauthorized'
+export const PASSWORD_CHANGE_REQUIRED_EVENT = 'ims:password-change-required'
 export const SUBSCRIPTION_EXPIRED_EVENT = 'ims:subscription-expired'
 
 export interface SubscriptionExpiredDetail {
@@ -25,28 +26,10 @@ export class ApiError extends Error {
   }
 }
 
-function readStoredToken(): string | null {
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { state?: { token?: string | null } }
-    return parsed?.state?.token ?? null
-  } catch {
-    return null
-  }
-}
-
 export const api = axios.create({
   baseURL: '/api',
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
-})
-
-api.interceptors.request.use((config) => {
-  const token = readStoredToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
 })
 
 api.interceptors.response.use(
@@ -56,8 +39,13 @@ api.interceptors.response.use(
     const payload = error.response?.data
     const url = String(error.config?.url ?? '')
 
-    if (status === 401 && !url.includes('/auth/login') && !url.includes('/auth/register-store')) {
+    if (status === 401 && !url.includes('/auth/login') && !url.includes('/auth/register-store')
+      && !url.includes('/auth/me') && !url.includes('/auth/logout')) {
       window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT))
+    }
+
+    if (status === 403 && payload?.code === 'PASSWORD_CHANGE_REQUIRED') {
+      window.dispatchEvent(new CustomEvent(PASSWORD_CHANGE_REQUIRED_EVENT))
     }
 
     if (status === 403 && payload?.code === 'SUBSCRIPTION_EXPIRED') {

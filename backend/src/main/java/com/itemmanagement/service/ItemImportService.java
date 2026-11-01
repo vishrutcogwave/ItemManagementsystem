@@ -30,10 +30,10 @@ import com.itemmanagement.repository.TaxMasterRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -90,6 +90,7 @@ public class ItemImportService {
     private final InventoryService inventoryService;
     private final NumberGenerator numberGenerator;
     private final AuditService auditService;
+    private final BarcodeService barcodeService;
     private final PlatformTransactionManager transactionManager;
 
     @Transactional(readOnly = true)
@@ -201,11 +202,11 @@ public class ItemImportService {
     public PageResponse<ImportBatchResponse> history(int page, int size) {
         Long storeId = TenantContext.storeId();
         AuthUser user = TenantContext.user();
-        int safeSize = Math.min(Math.max(size, 1), 50);
-        safeSize = Math.max(safeSize, 1);
-        Pageable pageable = PageRequest.of(Math.max(page, 0), safeSize);
+        int safeSize = Pagination.clampSize(size, 50);
+        int safePage = Pagination.clampPage(page);
+        Pageable pageable = Pagination.of(page, size, 50);
         if (!user.allBranches() && user.branchIds().isEmpty()) {
-            return new PageResponse<>(List.of(), Math.max(page, 0), safeSize, 0, 0);
+            return new PageResponse<>(List.of(), safePage, safeSize, 0, 0);
         }
         Page<ItemImportBatch> result = user.allBranches()
                 ? batchRepository.findByStoreIdOrderByCreatedAtDesc(storeId, pageable)
@@ -315,11 +316,15 @@ public class ItemImportService {
                     throw ApiException.conflict("Item code " + code
                             + " was created by another user. Upload the file again.");
                 }
+                BarcodeService.ResolvedBarcode barcode = barcodeService.generate(
+                        storeId, com.itemmanagement.entity.enums.BarcodeFormat.CODE128);
                 Item item = itemRepository.save(Item.builder()
                         .storeId(storeId)
                         .categoryId(category.getId())
                         .taxId(tax.getId())
                         .itemCode(code)
+                        .barcode(barcode.value())
+                        .barcodeFormat(barcode.format())
                         .itemName(clean(row.getItemName()))
                         .description(clean(row.getDescription()))
                         .baseUnit(Unit.valueOf(row.getUnit()))

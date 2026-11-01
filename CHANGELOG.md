@@ -5,6 +5,63 @@ Schema versions refer to `backend/src/main/resources/db/migration`.
 
 ---
 
+## 2026-11-01 — Authentication hardening, barcode and platform accounts (schema V8)
+
+> This entry documents the uncommitted hardening work on top of the V6 entry below. Production status
+> remains **V1–V5 applied; V6, V7 and V8 pending**. Nothing has been deployed. Full evidence:
+> `PROJECT_DOCUMENTATION/KNOWN_ISSUES_AND_RECOMMENDATIONS.md` and
+> `PROJECT_DOCUMENTATION/TEST_EXECUTION_REPORT.md`.
+
+### Security (K-01–K-12, K-27)
+
+- Removed the hard-coded platform administrator seeder. `PlatformAdminProvisioner` creates the first
+  administrator only with `PROVISION_PLATFORM_ADMIN=true` plus explicit username/password/email, and
+  refuses to run when an administrator exists. Demo data remains profile- and `SEED_DEMO`-gated.
+- Self-service `POST /api/auth/change-password` for platform and store users (current-password check,
+  shared strength policy, BCrypt, `token_version` increment, other sessions invalidated). Forced
+  change after administrator reset or provisioning (`403 PASSWORD_CHANGE_REQUIRED`).
+- Cookie sessions: `HttpOnly`, `SameSite=Strict`, configurable `Secure`; the SPA no longer persists a
+  token and migrates old `localStorage` state. Unsafe cookie requests require an allowlisted
+  `Origin`/`Referer` (`403 CSRF_ORIGIN_REJECTED`).
+- Persistent JWT revocation in `revoked_tokens` plus per-user `token_version`; scheduled purge of
+  expired rows only. Login lockout with HTTP 429 (`LOGIN_*` settings).
+- Platform audit viewer with filters and CSV export (platform-only). Reset responses are `no-store`,
+  require `confirm=true`, force a change and never audit the secret.
+- Public `/api/health` (database probe) and `/api/version` (build/Git commit, no secrets).
+- Shared password policy used by registration, provisioning, reset and change.
+
+### Database (V8 — additive)
+
+- `users.must_change_password BOOLEAN NOT NULL DEFAULT FALSE`.
+- `users.token_version INTEGER NOT NULL DEFAULT 0`.
+- `revoked_tokens(jti PK, expires_at, revoked_at)` and `ix_revoked_tokens_expires`.
+- No existing row rewritten, no column/table dropped. See `PROJECT_DOCUMENTATION/ROLLBACK_GUIDE.md` §1.1.
+
+### Barcode and reliability (K-13–K-25)
+
+- Camera scan falls back to `@zxing/browser` when `BarcodeDetector` is unavailable.
+- Configurable internal EAN-13 prefix (default `20`), `INTERNAL`/`GS1` classification and UI badge;
+  label calibration page and documented 50×30 mm settings.
+- Global pagination clamp (`page >= 0`, `size 1..100`); lint reduced to **0 warnings / 0 errors**.
+- Documented retention (audit 24 months, print jobs 12 months, manual approval before deletion),
+  backup/restore verification, monitoring via `/api/health`, and the V7 rollback compatibility scripts.
+
+### Verification
+
+- Backend: **68 tests passed**, 0 failed (AuthSecurity 14, SystemInvariant 22, ItemImport 13,
+  Printing 8, Barcode 6, PlatformAccount 5).
+- Frontend: `tsc -b` clean, oxlint 0/0, production build successful, `npm audit` 0 vulnerabilities.
+- Hardware (physical printer, USB scanner, phone camera, Android device) and live-server verification
+  remain pending; see the K-01–K-27 report.
+
+### Still open
+
+- Rotate the existing production platform administrator password after deployment (K-01/K-02).
+- Purchase returns/credit notes (K-16, design only), MFA (K-26, deferred), production verification
+  (K-12) and hardware checks.
+
+---
+
 ## 2026-11-01 — Silent Thermal Printing (schema V6)
 
 Application version: backend `1.0.0`, Windows bridge `1.0.0`, Android bridge `1.0.0` (versionCode 1).

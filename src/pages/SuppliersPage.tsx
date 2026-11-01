@@ -79,7 +79,6 @@ export function SuppliersPage() {
   useEffect(() => {
     if (!historySupplier) return
     let active = true
-    setHistory(null)
     api
       .get<SupplierPurchase[]>(`/suppliers/${historySupplier.id}/purchases`)
       .then((response) => {
@@ -211,7 +210,10 @@ export function SuppliersPage() {
       render: (row) => (
         <div className="flex items-center justify-end gap-1">
           <button
-            onClick={() => setHistorySupplier(row)}
+            onClick={() => {
+              setHistory(null)
+              setHistorySupplier(row)
+            }}
             className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
             title="Purchase history"
           >

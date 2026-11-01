@@ -20,10 +20,10 @@ import com.itemmanagement.repository.StockTransferRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import com.itemmanagement.util.UnitConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,7 +62,7 @@ public class TransferService {
         }
         Page<StockTransfer> transfers = transferRepository.search(storeId, branchId,
                 user.allBranches() ? null : user.branchIds(), status, from, to, clean(search),
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         Map<Long, Branch> branches = branches(storeId);
         return PageResponse.of(transfers, transfer -> toResponse(transfer, List.of(), branches, Map.of()));
     }

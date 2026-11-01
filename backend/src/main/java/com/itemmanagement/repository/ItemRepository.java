@@ -33,6 +33,10 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
 
     Optional<Item> findByStoreIdAndItemCodeIgnoreCase(Long storeId, String itemCode);
 
+    Optional<Item> findByStoreIdAndBarcode(Long storeId, String barcode);
+
+    boolean existsByStoreIdAndBarcode(Long storeId, String barcode);
+
     List<Item> findByStoreIdAndItemNameIgnoreCaseAndCategoryId(Long storeId, String itemName, Long categoryId);
 
     @Query("""
@@ -41,7 +45,8 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
               and (:categoryId is null or i.categoryId = :categoryId)
               and (:status is null or i.status = :status)
               and (:search is null or lower(i.itemName) like lower(concat('%', :search, '%'))
-                   or lower(i.itemCode) like lower(concat('%', :search, '%')))
+                   or lower(i.itemCode) like lower(concat('%', :search, '%'))
+                   or lower(i.barcode) like lower(concat('%', :search, '%')))
             order by i.itemName
             """)
     Page<Item> search(@Param("storeId") Long storeId, @Param("categoryId") Long categoryId,

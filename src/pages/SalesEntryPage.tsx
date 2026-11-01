@@ -8,6 +8,7 @@ import {
   PageHeader,
   Select,
 } from '../components/ui'
+import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { money, qty, today } from '../lib/format'
@@ -58,6 +59,7 @@ export function SalesEntryPage() {
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [completedSale, setCompletedSale] = useState<Sale | null>(null)
+  const [printingSale, setPrintingSale] = useState(false)
 
   const { data: items } = useApi<Item[]>(() => api.get('/items/options').then((response) => response.data), [])
 
@@ -87,6 +89,37 @@ export function SalesEntryPage() {
 
   const removeLine = (key: number) => {
     setLines((current) => (current.length === 1 ? current : current.filter((line) => line.key !== key)))
+  }
+
+  const scanItem = (code: string) => {
+    const match = items?.find((entry) => entry.barcode.toLowerCase() === code.toLowerCase())
+    if (!match) {
+      notifyError(`No active item uses barcode ${code}`)
+      return false
+    }
+    setLines((current) => {
+      const empty = current.find((line) => !line.itemId)
+      if (empty) {
+        return current.map((line) =>
+          line.key === empty.key
+            ? { ...line, itemId: match.id, unit: match.baseUnit, sellingRate: '' }
+            : line,
+        )
+      }
+      return [
+        ...current,
+        {
+          key: ++lineKey,
+          itemId: match.id,
+          quantity: '1',
+          unit: match.baseUnit,
+          sellingRate: '',
+          discount: '0',
+        },
+      ]
+    })
+    notify(`${match.itemName} added to the bill`)
+    return true
   }
 
   const reset = () => {
@@ -154,11 +187,17 @@ export function SalesEntryPage() {
   }
 
   const print = async (sale: Sale) => {
-    const outcome = await printSaleReceiptForDevice(sale, storeInfo)
-    if (!outcome) return
-    if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
-    else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
-    else if (outcome.message) notifyError(outcome.message)
+    if (printingSale) return
+    setPrintingSale(true)
+    try {
+      const outcome = await printSaleReceiptForDevice(sale, storeInfo)
+      if (!outcome) return
+      if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
+      else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
+      else if (outcome.message) notifyError(outcome.message)
+    } finally {
+      setPrintingSale(false)
+    }
   }
 
   return (
@@ -221,19 +260,22 @@ export function SalesEntryPage() {
           </Card>
 
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Sale items</h3>
-                {errors.items && <p className="text-xs font-medium text-rose-600">{errors.items}</p>}
+            <div className="space-y-2 border-b border-slate-100 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Sale items</h3>
+                  {errors.items && <p className="text-xs font-medium text-rose-600">{errors.items}</p>}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                  onClick={() => setLines((current) => [...current, newLine()])}
+                >
+                  Add line
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                icon={<Plus className="h-3.5 w-3.5" />}
-                onClick={() => setLines((current) => [...current, newLine()])}
-              >
-                Add line
-              </Button>
+              <ScanBar onDetected={scanItem} placeholder="Scan barcode to add an item line" />
             </div>
             <div className="thin-scrollbar overflow-x-auto">
               <table className="w-full min-w-[780px]">
@@ -462,7 +504,8 @@ export function SalesEntryPage() {
               <Button
                 variant="outline"
                 className="flex-1"
-                icon={<Printer className="h-4 w-4" />}
+                icon={printingSale ? undefined : <Printer className="h-4 w-4" />}
+                loading={printingSale}
                 onClick={() => void print(completedSale)}
               >
                 Print receipt

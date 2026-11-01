@@ -24,7 +24,7 @@ export function Badge({ tone = 'slate', children }: { tone?: BadgeTone; children
   )
 }
 
-export function statusTone(status: string | null | undefined): BadgeTone {
+function statusTone(status: string | null | undefined): BadgeTone {
   switch (status) {
     case 'ACTIVE':
     case 'COMPLETED':

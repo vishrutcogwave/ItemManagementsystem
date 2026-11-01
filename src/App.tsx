@@ -3,11 +3,12 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { AppLayout } from './components/layout/AppLayout'
 import { AccessDenied, PublicOnly, RequireAuth, RequirePermission } from './components/layout/guards'
 import { LoadingState, Toaster } from './components/ui'
-import { UNAUTHORIZED_EVENT } from './lib/api'
+import { api, PASSWORD_CHANGE_REQUIRED_EVENT, UNAUTHORIZED_EVENT } from './lib/api'
 import { useAuthStore } from './store/auth'
 import { notifyError } from './store/ui'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import type { AuthResponse } from './types'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const PosPage = lazy(() => import('./pages/PosPage').then((m) => ({ default: m.PosPage })))
@@ -34,6 +35,15 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ de
 const PlatformStoresPage = lazy(() =>
   import('./pages/PlatformStoresPage').then((m) => ({ default: m.PlatformStoresPage })),
 )
+const PlatformAccountsPage = lazy(() =>
+  import('./pages/PlatformAccountsPage').then((m) => ({ default: m.PlatformAccountsPage })),
+)
+const PlatformAuditPage = lazy(() =>
+  import('./pages/PlatformAuditPage').then((m) => ({ default: m.PlatformAuditPage })),
+)
+const ChangePasswordPage = lazy(() =>
+  import('./pages/ChangePasswordPage').then((m) => ({ default: m.ChangePasswordPage })),
+)
 const RegisterPage = lazy(() => import('./pages/RegisterPage').then((m) => ({ default: m.RegisterPage })))
 
 function HomeRoute() {
@@ -46,20 +56,51 @@ function HomeRoute() {
 
 function SessionWatcher() {
   const logout = useAuthStore((state) => state.logout)
+  const setSession = useAuthStore((state) => state.setSession)
+  const markSessionReady = useAuthStore((state) => state.markSessionReady)
+  const requirePasswordChange = useAuthStore((state) => state.requirePasswordChange)
   const navigate = useNavigate()
 
+  // The session cookie is HttpOnly, so the only way to know whether the
+  // browser is signed in is to ask the server once on start-up.
   useEffect(() => {
-    const handler = () => {
-      const hadSession = Boolean(useAuthStore.getState().token)
+    let active = true
+    api
+      .get<AuthResponse>('/auth/me')
+      .then(({ data }) => {
+        if (active) setSession(data)
+      })
+      .catch(() => {
+        if (active) logout()
+      })
+      .finally(() => {
+        if (active) markSessionReady()
+      })
+    return () => {
+      active = false
+    }
+  }, [logout, markSessionReady, setSession])
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      const hadSession = Boolean(useAuthStore.getState().user)
       logout()
       if (hadSession) {
         notifyError('Your session has expired. Please sign in again.')
         navigate('/login', { replace: true })
       }
     }
-    window.addEventListener(UNAUTHORIZED_EVENT, handler)
-    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler)
-  }, [logout, navigate])
+    const handlePasswordChange = () => {
+      requirePasswordChange()
+      navigate('/change-password', { replace: true })
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized)
+    window.addEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChange)
+    return () => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized)
+      window.removeEventListener(PASSWORD_CHANGE_REQUIRED_EVENT, handlePasswordChange)
+    }
+  }, [logout, navigate, requirePasswordChange])
 
   return null
 }
@@ -99,6 +140,15 @@ export default function App() {
             <PublicOnly>
               <RegisterPage />
             </PublicOnly>
+          }
+        />
+
+        <Route
+          path="/change-password"
+          element={
+            <RequireAuth>
+              <ChangePasswordPage />
+            </RequireAuth>
           }
         />
 
@@ -235,6 +285,22 @@ export default function App() {
             element={
               <RequirePermission permission="PLATFORM_MANAGE">
                 <PlatformStoresPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="platform/accounts"
+            element={
+              <RequirePermission permission="PLATFORM_MANAGE">
+                <PlatformAccountsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="platform/audit"
+            element={
+              <RequirePermission permission="PLATFORM_MANAGE">
+                <PlatformAuditPage />
               </RequirePermission>
             }
           />

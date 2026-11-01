@@ -20,6 +20,7 @@ import {
   StatusBadge,
   type Column,
 } from '../components/ui'
+import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
@@ -217,6 +218,43 @@ export function PurchasesPage() {
       ...current,
       items: current.items.length === 1 ? current.items : current.items.filter((line) => line.key !== key),
     }))
+  }
+
+  const scanItem = (code: string) => {
+    const match = items?.find((entry) => entry.barcode.toLowerCase() === code.toLowerCase())
+    if (!match) {
+      notifyError(`No active item uses barcode ${code}`)
+      return false
+    }
+    setForm((current) => {
+      const empty = current.items.find((line) => !line.itemId)
+      if (empty) {
+        return {
+          ...current,
+          items: current.items.map((line) =>
+            line.key === empty.key
+              ? { ...line, itemId: match.id, unit: match.baseUnit, purchaseRate: '' }
+              : line,
+          ),
+        }
+      }
+      return {
+        ...current,
+        items: [
+          ...current.items,
+          {
+            key: ++lineKey,
+            itemId: match.id,
+            quantity: '1',
+            unit: match.baseUnit,
+            purchaseRate: '',
+            discount: '0',
+          },
+        ],
+      }
+    })
+    notify(`${match.itemName} added to the purchase`)
+    return true
   }
 
   const inclusive = Boolean(store?.taxInclusive)
@@ -576,19 +614,22 @@ export function PurchasesPage() {
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Purchase items</h3>
-                {formErrors.items && <p className="text-xs font-medium text-rose-600">{formErrors.items}</p>}
+            <div className="space-y-2 border-b border-slate-100 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Purchase items</h3>
+                  {formErrors.items && <p className="text-xs font-medium text-rose-600">{formErrors.items}</p>}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                  onClick={() => setForm((current) => ({ ...current, items: [...current.items, newLine()] }))}
+                >
+                  Add line
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                icon={<Plus className="h-3.5 w-3.5" />}
-                onClick={() => setForm((current) => ({ ...current, items: [...current.items, newLine()] }))}
-              >
-                Add line
-              </Button>
+              <ScanBar onDetected={scanItem} placeholder="Scan barcode to add an item line" />
             </div>
             <div className="thin-scrollbar overflow-x-auto">
               <table className="w-full min-w-[780px]">

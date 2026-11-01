@@ -46,6 +46,12 @@ public class ItemController {
         return itemService.posItems(branchId, categoryId, search);
     }
 
+    @GetMapping("/barcode/{barcode}")
+    @PreAuthorize("hasAuthority('ITEM_VIEW') or hasAuthority('SALES_MANAGE') or hasAuthority('PURCHASE_MANAGE')")
+    public ItemResponse byBarcode(@PathVariable String barcode) {
+        return itemService.byBarcode(barcode);
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('ITEM_VIEW')")
     public ItemResponse get(@PathVariable Long id) {
@@ -68,6 +74,13 @@ public class ItemController {
     @PreAuthorize("hasAuthority('ITEM_MANAGE')")
     public ItemResponse updateStatus(@PathVariable Long id, @Valid @RequestBody StatusRequest request) {
         return itemService.updateStatus(id, request.status());
+    }
+
+    @PostMapping("/{id}/barcode")
+    @PreAuthorize("hasAuthority('ITEM_MANAGE')")
+    public ItemResponse regenerateBarcode(@PathVariable Long id,
+                                          @Valid @RequestBody ItemResponse.BarcodeRequest request) {
+        return itemService.regenerateBarcode(id, request.format());
     }
 
     @GetMapping("/{id}/stock")

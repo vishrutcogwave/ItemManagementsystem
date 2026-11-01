@@ -1,6 +1,7 @@
 package com.itemmanagement.service;
 
 import com.itemmanagement.dto.auth.AuthResponse;
+import com.itemmanagement.dto.auth.ChangePasswordRequest;
 import com.itemmanagement.dto.auth.LoginRequest;
 import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.dto.common.MessageResponse;
@@ -15,11 +16,13 @@ import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.JwtService;
+import com.itemmanagement.security.LoginAttemptService;
+import com.itemmanagement.security.PasswordPolicy;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.security.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -42,34 +45,47 @@ public class AuthService {
     private final UserRepository userRepository;
     private final StoreProvisioningService provisioningService;
     private final PasswordEncoder passwordEncoder;
+    private final PasswordPolicy passwordPolicy;
     private final JwtService jwtService;
     private final TokenBlacklistService blacklistService;
+    private final LoginAttemptService loginAttemptService;
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
-    public AuthResponse login(LoginRequest request) {
+    public AuthResponse login(LoginRequest request, String clientAddress) {
         String storeCode = request.storeCode().trim();
+        String attemptKey = loginAttemptService.key(storeCode, request.username(), clientAddress);
+        loginAttemptService.checkAllowed(attemptKey);
+
         User user;
         Store store = null;
 
-        if (PLATFORM_CODE.equalsIgnoreCase(storeCode)) {
-            user = userRepository.findByUsernameIgnoreCaseAndStoreIdIsNull(request.username().trim())
-                    .or(() -> userRepository.findByEmailIgnoreCaseAndStoreIdIsNull(request.username().trim()))
-                    .orElseThrow(() -> ApiException.unauthorized("Invalid store code, username or password"));
-        } else {
-            store = storeRepository.findByStoreCodeIgnoreCase(storeCode)
-                    .orElseThrow(() -> ApiException.unauthorized("Invalid store code, username or password"));
-            User foundUser = findStoreUser(store.getId(), request.username());
-            user = foundUser;
+        try {
+            if (PLATFORM_CODE.equalsIgnoreCase(storeCode)) {
+                user = userRepository.findByUsernameIgnoreCaseAndStoreIdIsNull(request.username().trim())
+                        .or(() -> userRepository.findByEmailIgnoreCaseAndStoreIdIsNull(request.username().trim()))
+                        .orElseThrow(() -> ApiException.unauthorized("Invalid store code, username or password"));
+            } else {
+                store = storeRepository.findByStoreCodeIgnoreCase(storeCode)
+                        .orElseThrow(() -> ApiException.unauthorized("Invalid store code, username or password"));
+                user = findStoreUser(store.getId(), request.username());
+            }
+        } catch (ApiException ex) {
+            if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
+                loginAttemptService.recordFailure(attemptKey);
+            }
+            throw ex;
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            loginAttemptService.recordFailure(attemptKey);
             throw ApiException.unauthorized("Invalid store code, username or password");
         }
         if (user.getStatus() != StoreStatus.ACTIVE) {
             throw ApiException.forbidden("This user account is inactive");
         }
         if (store == null && user.getRoles().stream().noneMatch(r -> StoreProvisioningService.PLATFORM_ADMIN.equals(r.getCode()))) {
+            loginAttemptService.recordFailure(attemptKey);
             throw ApiException.unauthorized("Invalid store code, username or password");
         }
         if (store != null) {
@@ -79,6 +95,7 @@ public class AuthService {
                 throw ApiException.forbidden("This store account is inactive. Contact the platform administrator.");
             }
         }
+        loginAttemptService.recordSuccess(attemptKey);
         AuthResponse response = buildSession(user, store, true);
         auditService.logFor(store == null ? null : store.getId(), user.getId(), user.getUsername(),
                 "LOGIN", "USER", user.getId(), "Successful login");
@@ -97,19 +114,54 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public AuthResponse refresh(HttpServletRequest request) {
+    public AuthResponse refresh(String currentToken) {
         AuthUser current = TenantContext.user();
         User user = userRepository.findById(current.userId())
                 .orElseThrow(() -> ApiException.unauthorized("User no longer exists"));
         Store store = user.getStoreId() == null ? null
                 : storeRepository.findById(user.getStoreId())
                 .orElseThrow(() -> ApiException.unauthorized("Store no longer exists"));
-        blacklistCurrentToken(request);
+        blacklistToken(currentToken);
         return buildSession(user, store, true);
     }
 
-    public void logout(HttpServletRequest request) {
-        blacklistCurrentToken(request);
+    public void logout(String currentToken) {
+        blacklistToken(currentToken);
+    }
+
+    /**
+     * Self-service password change for both platform administrators and store
+     * users. The current password is required, the new password must satisfy the
+     * shared policy, and every previously issued token for the user is invalidated
+     * by bumping the user's token version (other sessions are also blacklisted).
+     */
+    @Transactional
+    public AuthResponse changePassword(ChangePasswordRequest request, String currentToken) {
+        AuthUser current = TenantContext.user();
+        if (current == null) {
+            throw ApiException.unauthorized("Authentication required");
+        }
+        User user = userRepository.findById(current.userId())
+                .orElseThrow(() -> ApiException.unauthorized("User no longer exists"));
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Current password is incorrect",
+                    Map.of("currentPassword", "Current password is incorrect"));
+        }
+        passwordPolicy.validate(request.newPassword(), user.getUsername(), user.getEmail());
+        if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+            throw ApiException.badRequest("New password must be different from the current password");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+        user.setMustChangePassword(false);
+        user.setTokenVersion(user.getTokenVersion() + 1);
+        userRepository.save(user);
+        blacklistToken(currentToken);
+        Store store = user.getStoreId() == null ? null
+                : storeRepository.findById(user.getStoreId()).orElse(null);
+        auditService.logFor(user.getStoreId(), user.getId(), user.getUsername(),
+                "PASSWORD_CHANGE", "USER", user.getId(),
+                "User changed their own password; all other sessions were invalidated");
+        return buildSession(user, store, true);
     }
 
     @Transactional
@@ -174,7 +226,7 @@ public class AuthService {
                 allBranches
         );
 
-        String token = issueToken ? jwtService.generate(principal) : null;
+        String token = issueToken ? jwtService.generate(principal, user.getTokenVersion()) : null;
         List<AuthResponse.BranchProfile> branchProfiles = accessibleBranches.stream()
                 .sorted(Comparator.comparing(Branch::getBranchName))
                 .map(b -> new AuthResponse.BranchProfile(b.getId(), b.getBranchCode(), b.getBranchName(),
@@ -195,15 +247,15 @@ public class AuthService {
                 roles,
                 permissions,
                 allBranches,
-                platformAdmin
+                platformAdmin,
+                user.isMustChangePassword()
         );
     }
 
-    private void blacklistCurrentToken(HttpServletRequest request) {
-        String header = request.getHeader("Authorization");
-        if (header == null || !header.startsWith("Bearer ")) return;
+    private void blacklistToken(String token) {
+        if (token == null || token.isBlank()) return;
         try {
-            Claims claims = jwtService.parse(header.substring(7).trim());
+            Claims claims = jwtService.parse(token.trim());
             blacklistService.revoke(claims.getId(), jwtService.expiry(claims));
         } catch (Exception ignored) {
             // Invalid or already-expired tokens need no blacklist entry.

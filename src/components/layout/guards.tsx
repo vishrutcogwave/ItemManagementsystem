@@ -2,14 +2,28 @@ import { ArrowLeft, LockKeyhole } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth'
-import { Button } from '../ui'
+import { Button, LoadingState } from '../ui'
+
+function SessionLoading() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <LoadingState />
+    </div>
+  )
+}
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const token = useAuthStore((state) => state.token)
+  const user = useAuthStore((state) => state.user)
+  const sessionReady = useAuthStore((state) => state.sessionReady)
+  const mustChangePassword = useAuthStore((state) => state.mustChangePassword)
   const location = useLocation()
 
-  if (!token) {
+  if (!sessionReady) return <SessionLoading />
+  if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+  if (mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
   }
   return <>{children}</>
 }
@@ -32,9 +46,19 @@ export function RequirePermission({
 }
 
 export function PublicOnly({ children }: { children: ReactNode }) {
-  const token = useAuthStore((state) => state.token)
+  const user = useAuthStore((state) => state.user)
+  const sessionReady = useAuthStore((state) => state.sessionReady)
   const platformAdmin = useAuthStore((state) => state.platformAdmin)
-  if (token) return <Navigate to={platformAdmin ? '/platform/stores' : '/'} replace />
+  const mustChangePassword = useAuthStore((state) => state.mustChangePassword)
+  if (!sessionReady) return <SessionLoading />
+  if (user) {
+    return (
+      <Navigate
+        to={mustChangePassword ? '/change-password' : platformAdmin ? '/platform/stores' : '/'}
+        replace
+      />
+    )
+  }
   return <>{children}</>
 }
 

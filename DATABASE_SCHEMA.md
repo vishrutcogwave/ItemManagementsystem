@@ -1,5 +1,9 @@
 # DATABASE_SCHEMA.md
 
+> **Historical snapshot (V6 era).** This file does not include V7 (barcodes) or V8 (auth hardening).
+> Use `PROJECT_DOCUMENTATION/DATABASE_DOCUMENTATION.md` for the current V1–V8 schema, including
+> `users.must_change_password`, `users.token_version` and `revoked_tokens`.
+
 Complete PostgreSQL schema reference for the Item Management System.
 
 | Item | Value |

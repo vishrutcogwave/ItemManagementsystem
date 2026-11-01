@@ -12,9 +12,9 @@ import com.itemmanagement.repository.SupplierRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
+import com.itemmanagement.util.Pagination;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,7 +36,7 @@ public class SupplierService {
     public PageResponse<SupplierResponse> list(String search, StoreStatus status, int page, int size) {
         Long storeId = TenantContext.storeId();
         Page<Supplier> suppliers = supplierRepository.search(storeId, status, clean(search),
-                PageRequest.of(page, Math.min(Math.max(size, 1), 100)));
+                Pagination.of(page, size));
         return PageResponse.of(suppliers, this::toResponse);
     }
 
