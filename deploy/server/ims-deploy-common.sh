@@ -416,7 +416,8 @@ verify_db_dump() {
 }
 
 backup_current_jar() {
-  local ts=$1 dest="$IMS_BACKUP_DIR/item-management.jar.bak-$ts"
+  local ts=$1
+  local dest="$IMS_BACKUP_DIR/item-management.jar.bak-$ts"
   install -o root -g root -m 0600 "$IMS_JAR" "$dest" || die "could not back up current jar"
   (cd "$IMS_BACKUP_DIR" && sha256sum "$(basename "$dest")" >"$(basename "$dest").sha256") \
     || die "could not write jar checksum"
@@ -428,7 +429,8 @@ backup_current_jar() {
 }
 
 backup_current_frontend() {
-  local ts=$1 dest="$IMS_BACKUP_DIR/frontend-$ts.tar.gz"
+  local ts=$1
+  local dest="$IMS_BACKUP_DIR/frontend-$ts.tar.gz"
   [ -d "$IMS_WEB_ROOT" ] || die "frontend directory missing: $IMS_WEB_ROOT"
   tar -czf "$dest" -C "$IMS_WEB_ROOT" . || die "could not back up frontend"
   tar -tzf "$dest" >/dev/null 2>&1 || die "frontend backup archive is corrupt"
