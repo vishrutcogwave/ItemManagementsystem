@@ -34,7 +34,12 @@ export function SalesPage() {
   const { selectedBranchId, hasPermission, store } = useAuthStore()
   const canManage = hasPermission('SALES_MANAGE')
   const branchId = selectedBranchId
-  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
+  const storeInfo = {
+    name: store?.storeName ?? 'Store',
+    gstNumber: store?.gstNumber,
+    address: store?.address,
+    mobile: store?.mobile,
+  }
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')

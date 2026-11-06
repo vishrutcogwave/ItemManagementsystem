@@ -51,7 +51,12 @@ const paymentOptions: { value: PaymentMethod; label: string; icon: typeof Bankno
 export function PosPage() {
   const { branches, selectedBranchId, setBranch, store, user } = useAuthStore()
   const branchId = selectedBranchId ?? branches[0]?.id ?? null
-  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
+  const storeInfo = {
+    name: store?.storeName ?? 'Store',
+    gstNumber: store?.gstNumber,
+    address: store?.address,
+    mobile: store?.mobile,
+  }
 
   useEffect(() => {
     if (!selectedBranchId && branches[0]) setBranch(branches[0].id)
