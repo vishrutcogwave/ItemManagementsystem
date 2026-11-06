@@ -72,6 +72,8 @@ public class AuthService {
             }
         } catch (ApiException ex) {
             if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
+                // Blacklist any active token that was used to make this failed attempt
+                blacklistTokensAfterFailedLogin(storeCode, request.username(), clientAddress);
                 loginAttemptService.recordFailure(attemptKey);
             }
             throw ex;
@@ -259,6 +261,20 @@ public class AuthService {
             blacklistService.revoke(claims.getId(), jwtService.expiry(claims));
         } catch (Exception ignored) {
             // Invalid or already-expired tokens need no blacklist entry.
+        }
+    }
+
+    private void blacklistTokensAfterFailedLogin(String storeCode, String username, String clientAddress) {
+        try {
+            // Find a token that matches the failed credentials to blacklist it
+            // The key is: store_code|username|client_address
+            String key = storeCode + "|" + username + "|" + clientAddress;
+            
+            // Parse any active JWT we can find for this user
+            // We'll check both platform admin login (username only) and store user login (store+user)
+            blacklistService.revokeActiveTokens(storeCode, username, clientAddress);
+        } catch (Exception e) {
+            log.debug(\"Failed to blacklist tokens after failed login: {}\", e.getMessage());
         }
     }
 }
