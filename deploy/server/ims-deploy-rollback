@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Root-owned rollback orchestrator for the Item Management System.
+# Installed to /usr/local/sbin/ims-deploy-rollback by install-ims-deploy.sh.
+#
+# Usage:
+#   ims-deploy-rollback --component backend  [--backup <file-name>]
+#   ims-deploy-rollback --component frontend [--backup <file-name>]
+#
+# Without --backup the newest checksum-verified backup is used. Only file names
+# inside the backup directory are accepted; paths and shell input are rejected.
+# Database restores are intentionally NOT automated (see ROLLBACK_GUIDE.md).
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ims-deploy-common.sh
+. "$SCRIPT_DIR/ims-deploy-common.sh"
+
+usage() {
+  printf 'Usage: %s --component <backend|frontend> [--backup <file-name>]\n' "$(basename "$0")" >&2
+}
+
+COMPONENT=''
+BACKUP_NAME=''
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --component)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      COMPONENT=$2
+      shift 2
+      ;;
+    --backup)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      BACKUP_NAME=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+require_root
+valid_component "$COMPONENT" || { usage; die "invalid component"; }
+for cmd in systemctl flock sha256sum tar rsync install find curl; do
+  require_cmd "$cmd"
+done
+
+acquire_lock
+TS=$(date -u +%Y%m%d_%H%M%S)
+
+latest_verified() {
+  local pattern=$1 file base
+  while IFS= read -r file; do
+    base=$(basename "$file")
+    [ -f "$IMS_BACKUP_DIR/$base.sha256" ] || continue
+    if (cd "$IMS_BACKUP_DIR" && sha256sum -c "$base.sha256" >/dev/null 2>&1); then
+      printf '%s\n' "$file"
+      return 0
+    fi
+  done <<<"$(find "$IMS_BACKUP_DIR" -maxdepth 1 -type f -name "$pattern" \
+    -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2-)"
+  return 1
+}
+
+resolve_backup() {
+  local pattern name
+  if [ -n "$BACKUP_NAME" ]; then
+    case $BACKUP_NAME in
+      */*|*\\*|..*) die "backup name must be a plain file name" ;;
+    esac
+    [[ $BACKUP_NAME =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid backup name"
+    [ -f "$IMS_BACKUP_DIR/$BACKUP_NAME" ] || die "backup not found"
+    [ ! -L "$IMS_BACKUP_DIR/$BACKUP_NAME" ] || die "backup must not be a symlink"
+    printf '%s\n' "$IMS_BACKUP_DIR/$BACKUP_NAME"
+    return 0
+  fi
+  case $COMPONENT in
+    backend) pattern='item-management.jar.bak-*' ;;
+    frontend) pattern='frontend-*.tar.gz' ;;
+  esac
+  name=$(latest_verified "$pattern") || die "no checksum-verified $COMPONENT backup found"
+  printf '%s\n' "$name"
+}
+
+BACKUP=$(resolve_backup)
+BACKUP_BASE=$(basename "$BACKUP")
+log "selected $COMPONENT backup: $BACKUP"
+
+case $COMPONENT in
+  backend)
+    case $BACKUP_BASE in
+      item-management.jar.bak-*) ;;
+      *) die "not a backend jar backup: $BACKUP_BASE" ;;
+    esac
+    ;;
+  frontend)
+    case $BACKUP_BASE in
+      frontend-*.tar.gz) ;;
+      *) die "not a frontend archive backup: $BACKUP_BASE" ;;
+    esac
+    ;;
+esac
+
+[ -f "$BACKUP.sha256" ] || die "checksum file missing for backup"
+(cd "$IMS_BACKUP_DIR" && sha256sum -c "$BACKUP_BASE.sha256" >/dev/null) \
+  || die "backup checksum verification failed"
+BACKUP_SHA=$(sha256sum "$BACKUP" | awk '{print $1}')
+log "backup checksum verified: $BACKUP_SHA"
+
+if [ "$COMPONENT" = "backend" ]; then
+  log "creating safety copy of the current jar"
+  backup_current_jar "pre-rollback-$TS" >/dev/null
+  if ! systemctl is-active --quiet "$IMS_SERVICE"; then
+    log "WARN: $IMS_SERVICE is not active before rollback"
+  fi
+  log "restoring backend jar"
+  if ! restore_jar_backup "$BACKUP"; then
+    append_history rollback rollback-failed "" "$BACKUP_SHA" "$BACKUP" "" "" "backend restore failed" \
+      || true
+    die "jar restore failed; manual intervention required"
+  fi
+  if ! check_public_endpoints; then
+    append_history rollback rollback-failed "" "$BACKUP_SHA" "$BACKUP" "" "" "public check failed" || true
+    die "site health check failed after rollback"
+  fi
+  append_history rollback success "" "$BACKUP_SHA" "$BACKUP" "" "" "manual backend rollback" || true
+  log "backend rollback complete: $BACKUP"
+  print_summary rollback "$BACKUP_BASE" "$BACKUP_SHA" "$BACKUP"
+  exit 0
+fi
+
+log "creating safety copy of the current frontend"
+backup_current_frontend "pre-rollback-$TS"
+install -d -o root -g root -m 0700 "$IMS_WORK_ROOT"
+WORK=$(mktemp -d "$IMS_WORK_ROOT/${TS}-rollback.XXXXXX")
+chmod 0700 "$WORK"
+if ! restore_frontend_backup "$BACKUP" "$WORK/restore"; then
+  append_history rollback rollback-failed "" "$BACKUP_SHA" "$BACKUP" "" "" "frontend restore failed" || true
+  rm -rf "$WORK" 2>/dev/null || true
+  die "frontend restore failed; manual intervention required"
+fi
+if ! nginx -t >/dev/null 2>&1; then
+  rm -rf "$WORK" 2>/dev/null || true
+  die "nginx configuration test failed after frontend rollback"
+fi
+if ! check_public_endpoints; then
+  append_history rollback rollback-failed "" "$BACKUP_SHA" "$BACKUP" "" "" "public check failed" || true
+  rm -rf "$WORK" 2>/dev/null || true
+  die "site health check failed after frontend rollback"
+fi
+append_history rollback success "" "$BACKUP_SHA" "$BACKUP" "" "" "manual frontend rollback" || true
+rm -rf "$WORK" 2>/dev/null || true
+log "frontend rollback complete: $BACKUP"
+print_summary rollback "$BACKUP_BASE" "$BACKUP_SHA" "$BACKUP"
+exit 0

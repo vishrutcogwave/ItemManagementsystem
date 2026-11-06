@@ -10,6 +10,41 @@ accounts + audit viewer + health/version endpoints + printing/mobile fixes.
 
 ---
 
+## Automated deployment (preferred path)
+
+The `deploy/` tooling implements the steps below with validation, verified backups, health checks
+and automatic rollback. Use it for routine releases; use the manual sections in this checklist as
+the fallback and for first-time setup.
+
+**One-time server setup (root):** install the root-owned orchestrators — see
+`DEPLOYMENT_GUIDE.md` §2. This does **not** change sudo, SSH, Nginx, systemd or the env file.
+
+**Every release:**
+
+1. [ ] Read `DEPLOYMENT_GUIDE.md` and `DEPLOYMENT_SECURITY.md`.
+2. [ ] Commit all changes. Untracked files also block the deploy; the Windows scripts refuse a
+       dirty working tree.
+3. [ ] Windows readiness check:
+       `powershell -File deploy\windows\Test-DeploymentPrerequisites.ps1 -TestConnectivity`
+4. [ ] Build + upload (unprivileged, verifies remote SHA-256):
+       - `powershell -File deploy\windows\Deploy-Backend.ps1`
+       - `powershell -File deploy\windows\Deploy-Frontend.ps1`
+5. [ ] Record the full 40-character commit printed by each script.
+6. [ ] Owner runs the privileged step on the server (the `deploy` account cannot):
+       - `sudo /usr/local/sbin/ims-deploy-backend --commit <sha>`
+       - `sudo /usr/local/sbin/ims-deploy-frontend --commit <sha>`
+7. [ ] Verify: `sudo /usr/local/sbin/ims-deploy-status`, then
+       `powershell -File deploy\windows\Test-DeploymentHealth.ps1 -ExpectedCommit <sha>`.
+8. [ ] Complete the functional smoke tests in §8 below.
+
+The backend orchestrator runs the existing `/usr/local/sbin/ims-create-deployment-backup` and
+verifies a fresh dump, then backs up the jar and frontend. If any backup fails, nothing is
+installed. It refuses pending migrations unless the owner passes `--allow-migrations` after
+reviewing the SQL. On failure it restores the previous jar/frontend automatically and records the
+result; exit code 4 means "rolled back", 5 means "rollback failed — use `ROLLBACK_GUIDE.md`".
+
+---
+
 ## 0. Release identity
 
 Fill this in before starting. Do not proceed with blanks.

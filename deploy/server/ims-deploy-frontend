@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Root-owned frontend deployment orchestrator for the Item Management System.
+# Installed to /usr/local/sbin/ims-deploy-frontend by install-ims-deploy.sh.
+#
+# Usage: ims-deploy-frontend --commit <40-hex-commit>
+#
+# The deploy account uploads frontend.tar.gz + frontend.manifest into
+# /var/lib/ims-deploy/incoming. This script validates the archive, backs up the
+# current web root, deploys with rsync (preserving .well-known), verifies the
+# public sites and restores the previous frontend automatically on failure.
+#
+# It never edits or reloads Nginx configuration and never reads secrets.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ims-deploy-common.sh
+. "$SCRIPT_DIR/ims-deploy-common.sh"
+
+usage() {
+  printf 'Usage: %s --commit <40-hex-commit>\n' "$(basename "$0")" >&2
+}
+
+COMMIT=''
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --commit)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      COMMIT=${2,,}
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+require_root
+is_hex40 "$COMMIT" || { usage; die "--commit must be a full 40-character git commit"; }
+for cmd in curl flock systemctl nginx sha256sum tar rsync install find; do
+  require_cmd "$cmd"
+done
+
+acquire_lock
+assert_incoming_safe
+
+TS=$(date -u +%Y%m%d_%H%M%S)
+install -d -o root -g root -m 0700 "$IMS_WORK_ROOT"
+WORK=$(mktemp -d "$IMS_WORK_ROOT/${TS}-frontend.XXXXXX")
+chmod 0700 "$WORK"
+
+log "staging and validating uploaded frontend artifacts"
+MANIFEST=$(stage_artifact 'frontend.manifest' "$WORK")
+TARBALL=$(stage_artifact 'frontend.tar.gz' "$WORK")
+
+parse_manifest "$MANIFEST" frontend
+[ "$M_COMMIT" = "$COMMIT" ] || die "manifest commit does not match --commit"
+verify_file_matches_manifest "$TARBALL" >/dev/null
+validate_frontend_tar "$TARBALL"
+
+log "pre-flight checks"
+[ -d "$IMS_WEB_ROOT" ] || die "frontend directory missing: $IMS_WEB_ROOT"
+[ ! -L "$IMS_WEB_ROOT" ] || die "frontend directory must not be a symlink"
+systemctl is-active --quiet nginx || die "nginx is not active"
+nginx -t >/dev/null 2>&1 || die "nginx configuration test failed"
+systemctl is-active --quiet "$IMS_SERVICE" || die "$IMS_SERVICE is not active; refusing to deploy"
+free_kb=$(df -Pk /var | awk 'NR==2 {print $4}')
+[ "${free_kb:-0}" -ge 512000 ] || die "less than 500 MB free on /var"
+
+log "extracting and re-validating frontend archive"
+STAGE="$WORK/stage"
+install -d -o root -g root -m 0700 "$STAGE"
+tar -xzf "$TARBALL" -C "$STAGE" --no-same-owner --no-same-permissions || die "could not extract archive"
+[ -f "$STAGE/index.html" ] || die "extracted archive has no index.html"
+[ ! -L "$STAGE/index.html" ] || die "extracted index.html is a symlink"
+[ -d "$STAGE/assets" ] || die "extracted archive has no assets directory"
+if find "$STAGE" -type l | grep -q .; then
+  die "extracted archive contains symbolic links"
+fi
+
+log "backing up current frontend"
+backup_current_frontend "$TS"
+FRONTEND_BACKUP_SHA=$(sha256sum "$FRONTEND_BACKUP" | awk '{print $1}')
+
+fail() {
+  local reason=$1 code=${2:-4}
+  log "DEPLOYMENT FAILED: $reason"
+  set +e
+  local result='rolled-back'
+  if restore_frontend_backup "$FRONTEND_BACKUP" "$WORK/restore"; then
+    if check_public_endpoints; then
+      log "frontend rollback verified"
+    else
+      result='rollback-failed'
+      code=5
+    fi
+  else
+    result='rollback-failed'
+    code=5
+  fi
+  if [ "$result" = 'rollback-failed' ]; then
+    log "ROLLBACK FAILED - manual intervention required (see ROLLBACK_GUIDE.md)"
+  fi
+  append_history frontend "$result" "$M_COMMIT" "$M_SHA" "$FRONTEND_BACKUP" "" "" "$reason" \
+    || log "WARN: could not append deployment history"
+  rm -rf "$WORK" 2>/dev/null || true
+  exit "$code"
+}
+
+log "syncing frontend into $IMS_WEB_ROOT"
+set +e
+rsync -a --delete --exclude='.well-known/' "$STAGE/" "$IMS_WEB_ROOT/"
+if [ $? -ne 0 ]; then
+  fail "rsync failed" 4
+fi
+find "$IMS_WEB_ROOT" -type d -exec chmod 755 {} +
+find "$IMS_WEB_ROOT" -type f -exec chmod 644 {} +
+chown -R "$IMS_WEB_USER:$IMS_WEB_GROUP" "$IMS_WEB_ROOT"
+if [ $? -ne 0 ]; then
+  fail "could not set frontend ownership" 4
+fi
+
+if ! nginx -t >/dev/null 2>&1; then
+  fail "nginx configuration test failed after deployment" 4
+fi
+if ! check_public_endpoints; then
+  fail "public website health check failed" 4
+fi
+if ! check_public_api; then
+  fail "public API health check failed" 4
+fi
+
+asset_path=$(sed -n 's/.*\(src\|href\)="\(\/assets\/[^"]*\.\(js\|css\)\)".*/\2/p' "$STAGE/index.html" | head -1)
+if [ -n "$asset_path" ]; then
+  apex=${IMS_DOMAINS%% *}
+  code=$(http_code "$apex$asset_path")
+  if [ "$code" != "200" ]; then
+    fail "deployed asset returned HTTP $code: $asset_path" 4
+  fi
+  log "asset check ok: $asset_path -> 200"
+fi
+set -e
+
+prune_verified_backups 'frontend-*.tar.gz' || log "WARN: backup pruning skipped"
+append_history frontend success "$M_COMMIT" "$M_SHA" "$FRONTEND_BACKUP" "" "" \
+  "frontend_sha=$FRONTEND_BACKUP_SHA" || log "WARN: could not append deployment history"
+print_summary frontend "$M_COMMIT" "$M_SHA" "$FRONTEND_BACKUP"
+log "previous frontend: $FRONTEND_BACKUP ($FRONTEND_BACKUP_SHA)"
+rm -rf "$WORK" 2>/dev/null || true
+exit 0

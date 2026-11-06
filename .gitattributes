@@ -1,0 +1,4 @@
+# Shell scripts are executed on Linux and must keep LF endings.
+deploy/server/* text eol=lf
+# Windows deployment helpers are edited/run on Windows.
+deploy/windows/* text eol=crlf
