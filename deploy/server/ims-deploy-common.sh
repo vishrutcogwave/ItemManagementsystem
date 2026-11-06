@@ -372,8 +372,10 @@ run_db_backup() {
     rm -f "$ref"
     die "existing backup script failed; deployment aborted"
   fi
-  newest=$(find "$IMS_BACKUP_DIR" -maxdepth 1 -type f \
-    \( -name '*.dump' -o -name '*.sql' -o -name '*.sql.gz' \) \
+  # Accept both layouts: flat *.dump files and the per-run directory written
+  # by the existing backup script (database.dump inside a timestamped dir).
+  newest=$(find "$IMS_BACKUP_DIR" -maxdepth 2 -type f \
+    \( -name '*.dump' -o -name '*.sql' -o -name '*.sql.gz' -o -name 'database.dump' \) \
     -newer "$ref" -printf '%T@ %p\n' 2>/dev/null \
     | sort -nr | head -1 | cut -d' ' -f2-)
   rm -f "$ref"
@@ -384,7 +386,9 @@ run_db_backup() {
 }
 
 verify_db_dump() {
-  local file=$1 header
+  local file=$1 header dir base
+  dir=$(dirname "$file")
+  base=$(basename "$file")
   [ -s "$file" ] || die "database dump is empty: $file"
   case $file in
     *.sql.gz) gzip -t "$file" || die "gzip integrity check failed: $file" ;;
@@ -395,10 +399,20 @@ verify_db_dump() {
       fi
       ;;
   esac
-  if [ -f "$file.sha256" ]; then
-    (cd "$(dirname "$file")" && sha256sum -c "$(basename "$file").sha256" >/dev/null) \
-      || die "database dump checksum failed: $file"
+  if [ "$dir" = "$IMS_BACKUP_DIR" ]; then
+    # Flat layout: optional sibling checksum file, as before.
+    if [ -f "$file.sha256" ]; then
+      (cd "$dir" && sha256sum -c "$base.sha256" >/dev/null) \
+        || die "database dump checksum failed: $file"
+    fi
+    return 0
   fi
+  # Per-run directory written by the existing backup script: only trust it when
+  # the script marked it verified and left the checksum manifest it verified.
+  [ -f "$dir/.verified" ] || die "backup directory is not marked verified: $dir"
+  [ -f "$dir/SHA256SUMS" ] || die "backup checksum manifest is missing: $dir/SHA256SUMS"
+  (cd "$dir" && sha256sum -c SHA256SUMS --ignore-missing >/dev/null) \
+    || die "database dump checksum failed: $file"
 }
 
 backup_current_jar() {
