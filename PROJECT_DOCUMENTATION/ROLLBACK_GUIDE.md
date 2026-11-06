@@ -8,6 +8,46 @@ How to recover the Item Management System deployment safely.
 
 ---
 
+## Automated rollback (preferred)
+
+A failed deployment rolls back automatically; an already-deployed release can be rolled back
+manually with the same root-owned tooling:
+
+```bash
+# newest checksum-verified backup (keeps a safety copy of the current state first)
+sudo /usr/local/sbin/ims-deploy-rollback --component frontend
+sudo /usr/local/sbin/ims-deploy-rollback --component backend
+
+# or pin a specific backup by plain file name
+sudo /usr/local/sbin/ims-deploy-rollback --component frontend \
+     --backup frontend-20261106_120000.tar.gz
+sudo /usr/local/sbin/ims-deploy-rollback --component backend \
+     --backup item-management.jar.bak-20261106_120000
+```
+
+What the tool does:
+
+1. takes the deployment lock; accepts a plain file name only (no paths, `..`, backslashes or
+   symlinks) and verifies the `.sha256` file before touching anything;
+2. requires the name to match `frontend-*.tar.gz` or `item-management.jar.bak-*`;
+3. writes a safety copy of the current state (`frontend-pre-rollback-<TS>.tar.gz` or
+   `item-management.jar.bak-pre-rollback-<TS>`) with its checksum;
+4. **backend:** stops `item-management`, installs the backup jar as `ims:ims 0644`, starts the
+   service, waits for local health, then verifies the public sites; **frontend:** extracts to a
+   root-owned staging directory, `rsync -a --delete --exclude='.well-known/'`, fixes
+   ownership/permissions, runs `nginx -t` and verifies both public sites;
+5. appends a `rollback` record (`success` / `rollback-failed`) to
+   `/var/lib/ims-deploy/history/deployments.jsonl`.
+
+Exit codes: `0` success, `1` validation/safety failure (nothing changed), `2` usage. The tool does
+**not** restore the database or change Nginx configuration.
+
+> The V7/V8 caveats in §1.1 still apply to the automated backend rollback. The tool restores only
+> the jar; it does not apply the compatibility shim. Review §1.1 and §10 first, and prefer a forward
+> fix. Database restore remains destructive and requires explicit written owner approval (§8).
+
+---
+
 ## 1. What can be rolled back, and what cannot
 
 | Component | Rollback method | Reverses schema? | Risk |

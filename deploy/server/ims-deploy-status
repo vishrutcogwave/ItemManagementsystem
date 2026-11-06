@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Read-only status report for the Item Management System deployment.
+# Installed to /usr/local/sbin/ims-deploy-status by install-ims-deploy.sh.
+# Must run as root (needs psql as postgres and read access to the backup dir).
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ims-deploy-common.sh
+. "$SCRIPT_DIR/ims-deploy-common.sh"
+
+require_root
+for cmd in systemctl ss curl sha256sum unzip df; do
+  require_cmd "$cmd"
+done
+
+printf 'IMS deployment status  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf 'host: %s\n\n' "$(hostname -f 2>/dev/null || hostname)"
+
+printf 'service\n'
+if systemctl is-active --quiet "$IMS_SERVICE"; then
+  printf '  %s: active\n' "$IMS_SERVICE"
+else
+  printf '  %s: INACTIVE\n' "$IMS_SERVICE"
+fi
+systemctl show "$IMS_SERVICE" -p ActiveEnterTimestamp --value 2>/dev/null \
+  | sed 's/^/  active since: /' || true
+if port_listening; then
+  printf '  port 8080: listening\n'
+else
+  printf '  port 8080: NOT listening\n'
+fi
+printf '  nginx: %s\n' "$(systemctl is-active nginx 2>/dev/null || echo unknown)"
+printf '  disk free on /var: %s KB\n\n' "$(df -Pk /var | awk 'NR==2 {print $4}')"
+
+printf 'artifacts\n'
+if [ -f "$IMS_JAR" ]; then
+  printf '  jar: %s\n' "$IMS_JAR"
+  printf '  jar sha256: %s\n' "$(sha256sum "$IMS_JAR" | awk '{print $1}')"
+  printf '  jar built: %s\n' "$(stat -c %y "$IMS_JAR")"
+  commit=$(unzip -p "$IMS_JAR" 'META-INF/build-info.properties' 2>/dev/null || true)
+  if [ -z "$commit" ]; then
+    commit=$(unzip -p "$IMS_JAR" 'BOOT-INF/classes/META-INF/build-info.properties' 2>/dev/null || true)
+  fi
+  commit=$(printf '%s\n' "$commit" \
+    | sed -n -e 's/^build\.git\.commit=//p' -e 's/^git\.commit=//p' \
+    | tr -d '\r' | head -1 || true)
+  printf '  jar git commit: %s\n' "${commit:-unknown}"
+else
+  printf '  jar: MISSING (%s)\n' "$IMS_JAR"
+fi
+if [ -f "$IMS_WEB_ROOT/index.html" ]; then
+  printf '  frontend index.html: %s\n' "$(stat -c %y "$IMS_WEB_ROOT/index.html")"
+  printf '  frontend index sha256: %s\n' "$(sha256sum "$IMS_WEB_ROOT/index.html" | awk '{print $1}')"
+else
+  printf '  frontend index.html: MISSING (%s)\n' "$IMS_WEB_ROOT"
+fi
+printf '\n'
+
+printf 'flyway\n'
+if versions=$(flyway_versions 2>/dev/null) && [ -n "$versions" ]; then
+  printf '  applied: %s\n' "$versions"
+  printf '  failed: %s\n' "$(flyway_failed_count 2>/dev/null || echo unknown)"
+else
+  printf '  cannot read flyway_schema_history\n'
+fi
+printf '\n'
+
+printf 'backups (latest 5)\n'
+if [ -d "$IMS_BACKUP_DIR" ]; then
+  find "$IMS_BACKUP_DIR" -maxdepth 1 -type f \
+    \( -name '*.dump' -o -name '*.sql' -o -name '*.sql.gz' \
+       -o -name 'item-management.jar.bak-*' -o -name 'frontend-*.tar.gz' \) \
+    -printf '%TY-%Tm-%Td %TH:%TM %10s %p\n' 2>/dev/null \
+    | sort -r | head -5 | sed 's/^/  /'
+else
+  printf '  backup directory missing: %s\n' "$IMS_BACKUP_DIR"
+fi
+printf '\n'
+
+printf 'health\n'
+printf '  local api: %s\n' "$(http_code "$IMS_HEALTH_URL")"
+for domain in $IMS_DOMAINS; do
+  printf '  %s/ -> %s\n' "$domain" "$(http_code "$domain/")"
+  printf '  %s/api/health -> %s\n' "$domain" "$(http_code "$domain/api/health")"
+done
+printf '\n'
+
+printf 'recent deployment history\n'
+if [ -r "$IMS_HISTORY_DIR/deployments.jsonl" ]; then
+  tail -5 "$IMS_HISTORY_DIR/deployments.jsonl" | sed 's/^/  /'
+else
+  printf '  history not readable\n'
+fi
+exit 0

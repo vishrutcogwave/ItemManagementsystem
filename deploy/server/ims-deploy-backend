@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Root-owned backend deployment orchestrator for the Item Management System.
+# Installed to /usr/local/sbin/ims-deploy-backend by install-ims-deploy.sh.
+#
+# Usage: ims-deploy-backend --commit <40-hex-commit> [--allow-migrations]
+#
+# The deploy account uploads item-management.jar + backend.manifest into
+# /var/lib/ims-deploy/incoming. This script validates them, backs up the current
+# state using the existing backup script, installs the jar as ims:ims, restarts
+# only item-management, verifies health and rolls back automatically on failure.
+#
+# It never reads /etc/item-management.env, never edits Nginx configuration and
+# never runs arbitrary commands supplied by the caller.
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ims-deploy-common.sh
+. "$SCRIPT_DIR/ims-deploy-common.sh"
+
+usage() {
+  printf 'Usage: %s --commit <40-hex-commit> [--allow-migrations]\n' "$(basename "$0")" >&2
+}
+
+COMMIT=''
+ALLOW_MIGRATIONS=0
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --commit)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      COMMIT=${2,,}
+      shift 2
+      ;;
+    --allow-migrations)
+      ALLOW_MIGRATIONS=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+require_root
+is_hex40 "$COMMIT" || { usage; die "--commit must be a full 40-character git commit"; }
+for cmd in unzip curl flock ss systemctl nginx sha256sum tar rsync install find psql pg_restore; do
+  require_cmd "$cmd"
+done
+[ -x "$IMS_BACKUP_SCRIPT" ] || die "existing backup script missing: $IMS_BACKUP_SCRIPT"
+
+acquire_lock
+assert_incoming_safe
+
+TS=$(date -u +%Y%m%d_%H%M%S)
+install -d -o root -g root -m 0700 "$IMS_WORK_ROOT"
+WORK=$(mktemp -d "$IMS_WORK_ROOT/${TS}-backend.XXXXXX")
+chmod 0700 "$WORK"
+
+log "staging and validating uploaded backend artifacts"
+MANIFEST=$(stage_artifact 'backend.manifest' "$WORK")
+JAR=$(stage_artifact 'item-management.jar' "$WORK")
+
+parse_manifest "$MANIFEST" backend
+[ "$M_COMMIT" = "$COMMIT" ] || die "manifest commit does not match --commit"
+verify_file_matches_manifest "$JAR" >/dev/null
+validate_jar "$JAR" "$COMMIT"
+
+log "pre-flight checks"
+systemctl is-active --quiet "$IMS_SERVICE" || die "$IMS_SERVICE is not active; refusing to deploy"
+[ -f "$IMS_JAR" ] || die "current jar missing: $IMS_JAR"
+nginx -t >/dev/null 2>&1 || die "nginx configuration test failed"
+free_kb=$(df -Pk /var | awk 'NR==2 {print $4}')
+[ "${free_kb:-0}" -ge 512000 ] || die "less than 500 MB free on /var"
+
+failed_migrations=$(flyway_failed_count) || die "cannot read Flyway history"
+[ "$failed_migrations" = "0" ] || die "Flyway history contains failed migrations"
+FW_BEFORE=$(flyway_versions) || die "cannot read Flyway history"
+[ -n "$FW_BEFORE" ] || die "Flyway history is empty"
+log "applied migrations before deploy: $FW_BEFORE"
+
+PENDING=$(pending_migrations)
+if [ -n "$PENDING" ]; then
+  if [ "$ALLOW_MIGRATIONS" -ne 1 ]; then
+    append_history backend refused "$COMMIT" "$M_SHA" "" "$FW_BEFORE" "$FW_BEFORE" \
+      "pending migrations: $PENDING"
+    die "pending migrations ($PENDING); rerun with --allow-migrations only after explicit approval"
+  fi
+  log "migrations approved and pending: $PENDING (Flyway applies them on startup)"
+fi
+
+log "creating and verifying pre-deployment backups"
+run_db_backup
+backup_current_jar "$TS"
+backup_current_frontend "$TS"
+DB_SHA=$(sha256sum "$DB_BACKUP_PATH" | awk '{print $1}')
+JAR_BACKUP_SHA=$(sha256sum "$JAR_BACKUP" | awk '{print $1}')
+FRONTEND_BACKUP_SHA=$(sha256sum "$FRONTEND_BACKUP" | awk '{print $1}')
+log "backup checksums db=$DB_SHA jar=$JAR_BACKUP_SHA frontend=$FRONTEND_BACKUP_SHA"
+
+fail() {
+  local reason=$1 code=${2:-4}
+  log "DEPLOYMENT FAILED: $reason"
+  set +e
+  if [ -f "$IMS_JAR" ]; then
+    cp -a "$IMS_JAR" "$IMS_BACKUP_DIR/failed-item-management-$TS.jar" 2>/dev/null
+    chmod 0600 "$IMS_BACKUP_DIR/failed-item-management-$TS.jar" 2>/dev/null
+  fi
+  local result='rolled-back'
+  if restore_jar_backup "$JAR_BACKUP"; then
+    log "rollback succeeded; previous jar is running"
+  else
+    result='rollback-failed'
+    log "ROLLBACK FAILED - manual intervention required (see ROLLBACK_GUIDE.md)"
+    code=5
+  fi
+  local fw_after
+  fw_after=$(flyway_versions 2>/dev/null || true)
+  append_history backend "$result" "$M_COMMIT" "$M_SHA" "$JAR_BACKUP" "$FW_BEFORE" "$fw_after" "$reason"
+  rm -rf "$WORK" 2>/dev/null || true
+  exit "$code"
+}
+
+log "deploying backend jar (service will be restarted)"
+set +e
+systemctl stop "$IMS_SERVICE"
+if backend_running; then
+  fail "service did not stop" 4
+fi
+if ! install -o "$IMS_SERVICE_USER" -g "$IMS_SERVICE_GROUP" -m 0644 "$JAR" "$IMS_JAR"; then
+  fail "could not install new jar" 4
+fi
+log "installed jar: $IMS_JAR"
+systemctl start "$IMS_SERVICE"
+if ! wait_backend_healthy 150; then
+  fail "backend health check did not pass within 150s" 4
+fi
+log "backend health endpoint is UP"
+
+if ! port_listening; then
+  fail "port 8080 is not listening" 4
+fi
+
+if ! check_public_endpoints; then
+  fail "public website health check failed" 4
+fi
+if ! check_public_api; then
+  fail "public API health check failed" 4
+fi
+
+failed_after=$(flyway_failed_count 2>/dev/null)
+[ "$failed_after" = "0" ] || fail "Flyway reports failed migrations after startup" 4
+FW_AFTER=$(flyway_versions 2>/dev/null || true)
+PENDING_AFTER=$(pending_migrations 2>/dev/null || true)
+[ -z "$PENDING_AFTER" ] || fail "migrations still pending after startup: $PENDING_AFTER" 4
+
+runtime_commit=$(curl -fsS --max-time 10 "$IMS_VERSION_URL" 2>/dev/null \
+  | sed -n 's/.*"gitCommit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+if [ -n "$runtime_commit" ]; then
+  log "runtime git commit: $runtime_commit (expected prefix: ${M_SHORT})"
+  case $runtime_commit in
+    "$M_COMMIT"|"$M_SHORT"*) ;;
+    *) log "WARN: runtime gitCommit differs from deployed commit (possible GIT_COMMIT env override)" ;;
+  esac
+fi
+set -e
+
+prune_verified_backups 'item-management.jar.bak-*' || log "WARN: backup pruning skipped"
+prune_verified_backups 'frontend-*.tar.gz' || log "WARN: frontend backup pruning skipped"
+append_history backend success "$M_COMMIT" "$M_SHA" "$JAR_BACKUP" "$FW_BEFORE" "$FW_AFTER" \
+  "db_backup=$DB_BACKUP_PATH db_sha=$DB_SHA frontend_backup=$FRONTEND_BACKUP frontend_sha=$FRONTEND_BACKUP_SHA jar_backup_sha=$JAR_BACKUP_SHA" \
+  || log "WARN: could not append deployment history"
+print_summary backend "$M_COMMIT" "$M_SHA" "$JAR_BACKUP"
+log "Flyway: before=$FW_BEFORE after=$FW_AFTER"
+log "database backup: $DB_BACKUP_PATH ($DB_SHA)"
+log "frontend backup: $FRONTEND_BACKUP ($FRONTEND_BACKUP_SHA)"
+rm -rf "$WORK" 2>/dev/null || true
+exit 0

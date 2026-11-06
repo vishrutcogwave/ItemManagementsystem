@@ -18,6 +18,10 @@ backend/.gradle
 backend/.pgdata
 .pgdata
 
+# Local deployment configuration and history (never commit host/key details)
+deploy/windows/deploy.config.psd1
+deploy/.local/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
