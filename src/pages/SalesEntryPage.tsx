@@ -45,7 +45,12 @@ const toNumber = (value: string) => {
 
 export function SalesEntryPage() {
   const { branches, selectedBranchId, store } = useAuthStore()
-  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
+  const storeInfo = {
+    name: store?.storeName ?? 'Store',
+    gstNumber: store?.gstNumber,
+    address: store?.address,
+    mobile: store?.mobile,
+  }
   const [branchId, setBranchId] = useState<number | ''>(selectedBranchId ?? branches[0]?.id ?? '')
   const [salesDate, setSalesDate] = useState(today())
   const [customerName, setCustomerName] = useState('')

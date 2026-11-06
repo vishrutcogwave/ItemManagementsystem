@@ -13,6 +13,8 @@ function escapeHtml(value: string | null | undefined): string {
 interface StoreInfo {
   name: string
   gstNumber?: string | null
+  address?: string | null
+  mobile?: string | null
 }
 
 export function printPurchase(purchase: Purchase, store: StoreInfo): void {
@@ -71,48 +73,73 @@ export function printPurchase(purchase: Purchase, store: StoreInfo): void {
 
 export function printSaleReceipt(sale: Sale, store: StoreInfo): void {
   const interState = Number(sale.igstAmount) > 0
+  const time = sale.createdAt
+    ? new Date(sale.createdAt)
+        .toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+        .toUpperCase()
+    : ''
+  const rule = 'border-top:1px dashed #9ca3af;margin:8px 0'
+  const totalRow = (label: string, value: string, strong = false) =>
+    `<div style="display:flex;justify-content:space-between;gap:12px;${strong ? 'font-weight:700;' : ''}"><span>${label}</span><span style="white-space:nowrap">${value}</span></div>`
   const rows = sale.items
     .map(
       (line) => `<tr>
-        <td>${escapeHtml(line.itemName)}<div class="muted">${qty(line.quantity)} ${line.unit} × ${money(line.sellingRate)}</div></td>
-        <td class="right">${money(line.totalAmount ?? 0)}</td>
+        <td style="padding:3px 6px 3px 0;vertical-align:top;border-bottom:0">${escapeHtml(line.itemName)}</td>
+        <td style="padding:3px 0;text-align:right;white-space:nowrap;vertical-align:top;border-bottom:0">${escapeHtml(`${qty(line.quantity)} ${line.unit}`)}</td>
+        <td style="padding:3px 0;text-align:right;white-space:nowrap;vertical-align:top;border-bottom:0">${money(line.sellingRate)}</td>
+        <td style="padding:3px 0;text-align:right;white-space:nowrap;vertical-align:top;border-bottom:0">${money(line.totalAmount ?? 0)}</td>
       </tr>`,
     )
     .join('')
 
   printHtml(
-    `<div style="max-width:300px;margin:0 auto;font-family:'Courier New',monospace;font-size:11px">
-      <div style="text-align:center;margin-bottom:10px">
-        <p style="font-size:14px;font-weight:700;margin:0">${escapeHtml(store.name)}</p>
-        <p class="muted" style="margin:2px 0">${escapeHtml(sale.branchName)}</p>
-        ${store.gstNumber ? `<p class="muted" style="margin:2px 0">GSTIN ${escapeHtml(store.gstNumber)}</p>` : ''}
-        <p class="muted" style="margin:2px 0">${formatDate(sale.salesDate)} · ${escapeHtml(sale.salesNumber)}</p>
+    `<div style="max-width:300px;margin:0 auto;font-family:'Courier New',monospace;font-size:11px;line-height:1.45;color:#111">
+      <div style="text-align:center;margin-bottom:8px">
+        <p style="font-size:15px;font-weight:700;margin:0;letter-spacing:0.02em">${escapeHtml(store.name)}</p>
+        ${store.address ? `<p style="margin:2px 0">${escapeHtml(store.address)}</p>` : ''}
+        ${store.mobile ? `<p style="margin:2px 0">Ph: ${escapeHtml(store.mobile)}</p>` : ''}
+        ${store.gstNumber ? `<p style="margin:2px 0">GSTIN: ${escapeHtml(store.gstNumber)}</p>` : ''}
       </div>
-      <div style="border-top:1px dashed #9ca3af;border-bottom:1px dashed #9ca3af;padding:6px 0;margin-bottom:6px">
-        <p style="margin:2px 0">Customer: ${escapeHtml(sale.customerName || 'Walk-in')}</p>
-        ${sale.customerMobile ? `<p style="margin:2px 0">Mobile: ${escapeHtml(sale.customerMobile)}</p>` : ''}
-        ${sale.customerState ? `<p style="margin:2px 0">Place of supply: ${escapeHtml(sale.customerState)}</p>` : ''}
+      <div style="${rule};padding-top:6px">
+        <div style="display:flex;justify-content:space-between;gap:10px"><span>Bill No: ${escapeHtml(sale.salesNumber)}</span><span>Date: ${formatDate(sale.salesDate)}</span></div>
+        <div style="display:flex;justify-content:space-between;gap:10px"><span>${time ? `Time: ${escapeHtml(time)}` : ''}</span><span>Branch: ${escapeHtml(sale.branchName)}</span></div>
       </div>
-      <table style="margin:0;font-size:11px">
+      <div style="${rule};padding:2px 0">
+        <div>Customer: ${escapeHtml(sale.customerName || 'Walk-in')}</div>
+        ${sale.customerMobile ? `<div>Mobile: ${escapeHtml(sale.customerMobile)}</div>` : ''}
+        ${sale.customerState ? `<div>Place of supply: ${escapeHtml(sale.customerState)}</div>` : ''}
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin:0;font-size:11px">
+        <thead><tr>
+          <th style="text-align:left;padding:3px 6px 3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em">ITEM</th>
+          <th style="text-align:right;padding:3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em;white-space:nowrap">QTY</th>
+          <th style="text-align:right;padding:3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em;white-space:nowrap">RATE</th>
+          <th style="text-align:right;padding:3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em;white-space:nowrap">AMOUNT</th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="border-top:1px dashed #9ca3af;margin-top:8px;padding-top:6px">
-        <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
-        <div style="display:flex;justify-content:space-between"><span>Discount</span><span>− ${money(sale.discount)}</span></div>
-        <div style="display:flex;justify-content:space-between"><span>Taxable value</span><span>${money(sale.taxableAmount)}</span></div>
+      <div style="${rule};padding-top:6px">
+        ${totalRow('Subtotal', money(sale.subtotal))}
+        ${totalRow('Discount', `− ${money(sale.discount)}`)}
+        ${totalRow('Taxable value', money(sale.taxableAmount))}
         ${
           interState
-            ? `<div style="display:flex;justify-content:space-between"><span>IGST</span><span>${money(sale.igstAmount)}</span></div>`
-            : `<div style="display:flex;justify-content:space-between"><span>CGST</span><span>${money(sale.cgstAmount)}</span></div>
-               <div style="display:flex;justify-content:space-between"><span>SGST</span><span>${money(sale.sgstAmount)}</span></div>`
+            ? totalRow('IGST', money(sale.igstAmount))
+            : `${totalRow('CGST', money(sale.cgstAmount))}${totalRow('SGST', money(sale.sgstAmount))}`
         }
-        <div style="display:flex;justify-content:space-between"><span>Total tax</span><span>${money(sale.tax)}</span></div>
-        <div style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;margin-top:4px"><span>Total</span><span>${money(sale.grandTotal)}</span></div>
-        <div style="display:flex;justify-content:space-between;margin-top:4px"><span>Paid (${escapeHtml(sale.paymentMethod)})</span><span>${money(sale.paidAmount)}</span></div>
-        ${Number(sale.balanceAmount) > 0 ? `<div style="display:flex;justify-content:space-between"><span>Balance</span><span>${money(sale.balanceAmount)}</span></div>` : ''}
+        ${totalRow('Total tax', money(sale.tax))}
+        <div style="display:flex;justify-content:space-between;gap:12px;border-top:1px dashed #9ca3af;margin-top:4px;padding-top:4px;font-weight:700;font-size:13px"><span>GRAND TOTAL</span><span style="white-space:nowrap">${money(sale.grandTotal)}</span></div>
       </div>
-      <p style="text-align:center;margin-top:14px" class="muted">Thank you for your business!</p>
-      <p style="text-align:center;margin-top:4px" class="muted">Item Management System</p>
+      <div style="${rule};padding-top:6px">
+        <div>Payment: ${escapeHtml(sale.paymentMethod)}</div>
+        ${totalRow('Paid', money(sale.paidAmount))}
+        ${Number(sale.balanceAmount) > 0 ? totalRow('Balance', money(sale.balanceAmount), true) : ''}
+      </div>
+      <div style="text-align:center;margin-top:12px">
+        <p style="margin:2px 0">Thank you for dining with us!</p>
+        <p style="margin:2px 0">Please visit again</p>
+        <p class="muted" style="margin:2px 0;font-size:10px">Item Management System</p>
+      </div>
     </div>`,
     `Receipt ${sale.salesNumber}`,
   )

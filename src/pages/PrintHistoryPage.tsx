@@ -32,7 +32,12 @@ export function PrintHistoryPage() {
   const branches = useAuthStore((state) => state.branches)
   const store = useAuthStore((state) => state.store)
   const canReprint = hasPermission('SALES_MANAGE')
-  const storeInfo = { name: store?.storeName ?? 'Store', gstNumber: store?.gstNumber }
+  const storeInfo = {
+    name: store?.storeName ?? 'Store',
+    gstNumber: store?.gstNumber,
+    address: store?.address,
+    mobile: store?.mobile,
+  }
 
   const [page, setPage] = useState(0)
   const [size, setSize] = useState(20)
