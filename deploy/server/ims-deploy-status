@@ -66,13 +66,34 @@ else
 fi
 printf '\n'
 
-printf 'backups (latest 5)\n'
+printf 'backups\n'
 if [ -d "$IMS_BACKUP_DIR" ]; then
-  find "$IMS_BACKUP_DIR" -maxdepth 1 -type f \
+  printf '  per-run backups (latest 5)\n'
+  runs=$(find "$IMS_BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d \
+    -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]' \
+    -printf '%T@ %TY-%Tm-%TdT%TH:%TM %p\n' 2>/dev/null | sort -nr | sed -n '1,5p' || true)
+  if [ -n "$runs" ]; then
+    while read -r _ stamp dir; do
+      [ -n "$dir" ] || continue
+      if [ -f "$dir/.verified" ]; then state=verified; else state=UNVERIFIED; fi
+      printf '  %s  %s  (%s)\n' "$stamp" "$dir" "$state"
+    done <<<"$runs"
+  else
+    printf '  none\n'
+  fi
+  printf '  orchestrator artifacts (latest 5)\n'
+  files=$(find "$IMS_BACKUP_DIR" -maxdepth 1 -type f \
     \( -name '*.dump' -o -name '*.sql' -o -name '*.sql.gz' \
        -o -name 'item-management.jar.bak-*' -o -name 'frontend-*.tar.gz' \) \
-    -printf '%TY-%Tm-%Td %TH:%TM %10s %p\n' 2>/dev/null \
-    | sort -r | head -5 | sed 's/^/  /'
+    -printf '%T@ %TY-%Tm-%TdT%TH:%TM %10s %p\n' 2>/dev/null | sort -nr | sed -n '1,5p' || true)
+  if [ -n "$files" ]; then
+    while read -r _ stamp size path; do
+      [ -n "$path" ] || continue
+      printf '  %s %10s %s\n' "$stamp" "$size" "$path"
+    done <<<"$files"
+  else
+    printf '  none\n'
+  fi
 else
   printf '  backup directory missing: %s\n' "$IMS_BACKUP_DIR"
 fi
