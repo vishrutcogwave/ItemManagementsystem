@@ -15,6 +15,17 @@ export interface StoreInfo {
   mobile?: string | null
 }
 
+/** Heading printed under the store details. Change to 'Tax Invoice' if you prefer. */
+const INVOICE_TITLE = 'Retail Invoice'
+
+/**
+ * Character used to fill the gaps between columns and in "label ........ value" rows.
+ * Keep ' ' normally. If your print bridge collapses repeated spaces into one (the receipt then
+ * prints "Item Qty Amt" with no gaps), try '.' or '_' here, or use buildSpacingTestLines() to
+ * find out which characters survive on your printer.
+ */
+const FILL = '.'
+
 export function paperColumns(paperWidth: PaperWidth | null | undefined): number {
   return paperWidth === 'MM58' ? 32 : 48
 }
@@ -67,15 +78,15 @@ function wrap(text: string, width: number): string[] {
 }
 
 function padLeft(text: string, width: number): string {
-  return text.length >= width ? text : ' '.repeat(width - text.length) + text
+  return text.length >= width ? text : FILL.repeat(width - text.length) + text
 }
 
 function padRight(text: string, width: number): string {
-  return text.length >= width ? text : text + ' '.repeat(width - text.length)
+  return text.length >= width ? text : text + FILL.repeat(width - text.length)
 }
 
 function pair(left: string, right: string, width: number): string {
-  return `${left}${' '.repeat(Math.max(1, width - left.length - right.length))}${right}`
+  return `${left}${FILL.repeat(Math.max(1, width - left.length - right.length))}${right}`
 }
 
 function center(text: string): ThermalLine {
@@ -86,20 +97,11 @@ function divider(width: number, char = '-'): ThermalLine {
   return { text: char.repeat(width) }
 }
 
-function pushMeta(
-  lines: ThermalLine[],
-  left: [label: string, value: string],
-  right: [label: string, value: string],
-  width: number,
-): void {
-  const leftText = left[1] ? `${left[0]}: ${left[1]}` : ''
-  const rightText = right[1] ? `${right[0]}: ${right[1]}` : ''
-  if (leftText && rightText && leftText.length + 1 + rightText.length <= width) {
-    lines.push({ text: pair(leftText, rightText, width) })
-    return
-  }
-  if (leftText) lines.push(...labeled(left[0], left[1], width))
-  if (rightText) lines.push(...labeled(right[0], right[1], width))
+function labeled(label: string, value: string, width: number): ThermalLine[] {
+  const prefix = `${label}: `
+  return wrap(value, Math.max(1, width - prefix.length)).map((part, index) => ({
+    text: index === 0 ? `${prefix}${part}` : `${' '.repeat(prefix.length)}${part}`,
+  }))
 }
 
 function priceLine(left: string, right: string, width: number): ThermalLine[] {
@@ -117,13 +119,6 @@ function priceLine(left: string, right: string, width: number): ThermalLine[] {
   return wrapped.map((part) => ({ text: part }))
 }
 
-function labeled(label: string, value: string, width: number): ThermalLine[] {
-  const prefix = `${label}: `
-  return wrap(value, Math.max(1, width - prefix.length)).map((part, index) => ({
-    text: index === 0 ? `${prefix}${part}` : `${' '.repeat(prefix.length)}${part}`,
-  }))
-}
-
 function saleTime(value: string | null | undefined): string {
   if (!value) return ''
   const date = new Date(value)
@@ -137,35 +132,98 @@ function saleTime(value: string | null | undefined): string {
 interface Column {
   text: string
   width: number
-  align?: 'left' | 'right'
+  align?: 'left' | 'center' | 'right'
+}
+
+function padCenter(text: string, width: number): string {
+  if (text.length >= width) return text
+  const total = width - text.length
+  const left = Math.floor(total / 2)
+  return FILL.repeat(left) + text + FILL.repeat(total - left)
 }
 
 function columnsLine(columns: Column[]): string {
   return columns
-    .map((column) => (column.align === 'right' ? padLeft(column.text, column.width) : padRight(column.text, column.width)))
-    .join(' ')
-}
-
-function itemTable(items: NonNullable<Sale['items']>, width: number) {
-  const qtyTexts = items.map((line) => safe(`${qty(line.quantity)} ${line.unit ?? ''}`.trim()))
-  const rateTexts = items.map((line) => amount(line.sellingRate))
-  const amountTexts = items.map((line) => amount(line.totalAmount))
-  const qtyWidth = Math.max(3, ...qtyTexts.map((text) => text.length))
-  const rateWidth = Math.max(4, ...rateTexts.map((text) => text.length))
-  const amountWidth = Math.max(6, ...amountTexts.map((text) => text.length))
-  return {
-    qtyTexts,
-    rateTexts,
-    amountTexts,
-    qtyWidth,
-    rateWidth,
-    amountWidth,
-    itemWidth: width - qtyWidth - rateWidth - amountWidth - 3,
-  }
+    .map((column) => {
+      if (column.align === 'right') return padLeft(column.text, column.width)
+      if (column.align === 'center') return padCenter(column.text, column.width)
+      return padRight(column.text, column.width)
+    })
+    .join(FILL)
 }
 
 /**
- * Builds the restaurant-style receipt as text lines sized for a 58mm (32 column)
+ * Three-part "space-between" table: ITEM on the left, QTY centred on the middle of the line,
+ * AMT flush right. The Sub Total row shares the same columns so everything lines up.
+ */
+function itemTable(items: NonNullable<Sale['items']>, width: number, totalQtyText: string, subtotalText: string) {
+  const qtyTexts = items.map((line) => safe(`${qty(line.quantity)} ${line.unit ?? ''}`.trim()))
+  const amountTexts = items.map((line) => amount(line.totalAmount))
+  const qtyWidth = Math.max(3, totalQtyText.length, ...qtyTexts.map((text) => text.length))
+  const neededAmountWidth = Math.max(3, subtotalText.length, ...amountTexts.map((text) => text.length))
+
+  const qtyStart = Math.floor((width - qtyWidth) / 2)
+  let itemWidth = qtyStart - 1
+  let amountWidth = width - qtyStart - qtyWidth - 1
+  if (amountWidth < neededAmountWidth) {
+    // Very large amounts: give the amount what it needs and let the item column shrink
+    amountWidth = neededAmountWidth
+    itemWidth = width - qtyWidth - amountWidth - 2
+  }
+  return { qtyTexts, amountTexts, qtyWidth, amountWidth, itemWidth }
+}
+
+/**
+ * GST rows grouped by rate, e.g. "CGST @ 14.00%" then "SGST @ 14.00%".
+ * Rates are read from optional per-item fields (cgstRate / sgstRate / igstRate with the matching
+ * amounts). If your items don't carry them, this falls back to the sale-level CGST/SGST/IGST totals.
+ */
+interface ItemTaxFields {
+  cgstRate?: number | string | null
+  sgstRate?: number | string | null
+  igstRate?: number | string | null
+  cgstAmount?: number | string | null
+  sgstAmount?: number | string | null
+  igstAmount?: number | string | null
+}
+
+function taxLines(sale: Sale, items: NonNullable<Sale['items']>, interState: boolean, width: number): ThermalLine[] {
+  const groups: { name: string; rate: number; total: number }[] = []
+  const add = (name: string, rateValue: unknown, amountValue: unknown) => {
+    const rate = Number(rateValue ?? 0)
+    const value = Number(amountValue ?? 0)
+    if (!(rate > 0)) return
+    const existing = groups.find((group) => group.name === name && group.rate === rate)
+    if (existing) existing.total += value
+    else groups.push({ name, rate, total: value })
+  }
+
+  for (const item of items) {
+    const fields = item as unknown as ItemTaxFields
+    if (interState) {
+      add('IGST', fields.igstRate, fields.igstAmount)
+    } else {
+      add('CGST', fields.cgstRate, fields.cgstAmount)
+      add('SGST', fields.sgstRate, fields.sgstAmount)
+    }
+  }
+
+  if (groups.length > 0) {
+    groups.sort((a, b) => b.rate - a.rate || a.name.localeCompare(b.name))
+    return groups.map((group) => ({
+      text: pair(`${group.name} @ ${group.rate.toFixed(2)}%`, amount(group.total), width),
+    }))
+  }
+
+  if (interState) return [{ text: pair('IGST', amount(sale.igstAmount), width) }]
+  return [
+    { text: pair('CGST', amount(sale.cgstAmount), width) },
+    { text: pair('SGST', amount(sale.sgstAmount), width) },
+  ]
+}
+
+/**
+ * Builds the retail invoice as text lines sized for a 58mm (32 column)
  * or 80mm (48 column) printer. Values come from the same Sale fields as before;
  * only the presentation changed.
  */
@@ -174,10 +232,12 @@ export function buildSaleReceiptLines(sale: Sale, store: StoreInfo, paperWidth: 
   const lines: ThermalLine[] = []
   const interState = Number(sale.igstAmount) > 0
   const time = saleTime(sale.createdAt)
+  const items = sale.items ?? []
 
   lines.push({ text: '' })
 
-  const storeName = safe(store.name ?? '')
+  // ---------- Header ----------
+  const storeName = safe(store.name ?? '').toUpperCase()
   if (storeName) {
     if (storeName.length <= Math.floor(width / 2)) {
       lines.push({ text: storeName, bold: true, align: 'center', doubleSize: true })
@@ -188,29 +248,39 @@ export function buildSaleReceiptLines(sale: Sale, store: StoreInfo, paperWidth: 
   if (store.address) {
     for (const part of wrap(safe(store.address), width)) lines.push(center(part))
   }
-  if (store.mobile) lines.push(center(`Ph: ${safe(store.mobile)}`))
+  if (store.mobile) lines.push(center(`Phone: ${safe(store.mobile)}`))
   if (store.gstNumber) lines.push(center(`GSTIN: ${safe(store.gstNumber)}`))
 
   lines.push(divider(width))
-  pushMeta(lines, ['Bill No', safe(sale.salesNumber)], ['Date', formatDate(sale.salesDate)], width)
-  pushMeta(lines, ['Time', time], ['Branch', safe(sale.branchName ?? '')], width)
+  lines.push({ text: INVOICE_TITLE, bold: true, align: 'center' })
   lines.push(divider(width))
 
-  lines.push(...labeled('Customer', safe(sale.customerName || 'Walk-in'), width))
+  // ---------- Bill details ----------
+  const dateText = [formatDate(sale.salesDate), time].filter(Boolean).join(', ')
+  lines.push(...labeled('Date', dateText, width))
+  for (const part of wrap(safe(sale.customerName || 'Walk-in'), width)) {
+    lines.push({ text: part, bold: true })
+  }
   if (sale.customerMobile) lines.push(...labeled('Mobile', safe(sale.customerMobile), width))
   if (sale.customerState) lines.push(...labeled('Place of supply', safe(sale.customerState), width))
+  lines.push(...labeled('Bill No', safe(sale.salesNumber), width))
+  if (sale.branchName) lines.push(...labeled('Branch', safe(sale.branchName), width))
+  lines.push(...labeled('Payment Mode', safe(String(sale.paymentMethod ?? '')), width))
   lines.push(divider(width))
 
-  const items = sale.items ?? []
+  // ---------- Items ----------
+  const totalQty = items.reduce((sum, line) => sum + Number(line.quantity ?? 0), 0)
+  const totalQtyText = qty(totalQty)
+  const subtotalText = amount(sale.subtotal)
+
   if (items.length > 0) {
-    const table = itemTable(items, width)
+    const table = itemTable(items, width, totalQtyText, subtotalText)
     if (table.itemWidth >= 6) {
       lines.push({
         text: columnsLine([
-          { text: 'ITEM', width: table.itemWidth },
-          { text: 'QTY', width: table.qtyWidth, align: 'right' },
-          { text: 'RATE', width: table.rateWidth, align: 'right' },
-          { text: 'AMOUNT', width: table.amountWidth, align: 'right' },
+          { text: 'Item', width: table.itemWidth },
+          { text: 'Qty', width: table.qtyWidth, align: 'center' },
+          { text: 'Amt', width: table.amountWidth, align: 'right' },
         ]),
         bold: true,
       })
@@ -220,53 +290,92 @@ export function buildSaleReceiptLines(sale: Sale, store: StoreInfo, paperWidth: 
         lines.push({
           text: columnsLine([
             { text: nameParts[0] ?? '', width: table.itemWidth },
-            { text: table.qtyTexts[index], width: table.qtyWidth, align: 'right' },
-            { text: table.rateTexts[index], width: table.rateWidth, align: 'right' },
+            { text: table.qtyTexts[index], width: table.qtyWidth, align: 'center' },
             { text: table.amountTexts[index], width: table.amountWidth, align: 'right' },
           ]),
         })
         for (const extra of nameParts.slice(1)) lines.push({ text: extra })
       })
+      lines.push(divider(width))
+      lines.push({
+        text: columnsLine([
+          { text: 'Sub Total', width: table.itemWidth },
+          { text: totalQtyText, width: table.qtyWidth, align: 'center' },
+          { text: subtotalText, width: table.amountWidth, align: 'right' },
+        ]),
+      })
     } else {
+      // Very narrow layout: name on its own lines, qty x rate with the amount flush right
       for (const line of items) {
         for (const part of wrap(safe(String(line.itemName ?? '')), width)) lines.push({ text: part })
         lines.push(
           ...priceLine(
-            `  ${qty(line.quantity)} ${line.unit ?? ''} x ${amount(line.sellingRate)}`,
+            `  ${qty(line.quantity)} ${safe(line.unit ?? '')} x ${amount(line.sellingRate)}`,
             amount(line.totalAmount),
             width,
           ),
         )
       }
+      lines.push(divider(width))
+      lines.push({ text: pair(`Sub Total (${totalQtyText})`, subtotalText, width) })
     }
-    lines.push(divider(width))
-  }
-
-  lines.push({ text: pair('Subtotal', amount(sale.subtotal), width) })
-  if (Number(sale.discount) > 0) {
-    lines.push({ text: pair('Discount', `- ${amount(sale.discount)}`, width) })
-  }
-  lines.push({ text: pair('Taxable value', amount(sale.taxableAmount), width) })
-  if (interState) {
-    lines.push({ text: pair('IGST', amount(sale.igstAmount), width) })
   } else {
-    lines.push({ text: pair('CGST', amount(sale.cgstAmount), width) })
-    lines.push({ text: pair('SGST', amount(sale.sgstAmount), width) })
+    lines.push({ text: pair('Sub Total', subtotalText, width) })
   }
-  lines.push({ text: pair('Total tax', amount(sale.tax), width) })
-  lines.push(divider(width, '='))
-  lines.push({ text: pair('GRAND TOTAL', amount(sale.grandTotal), width), bold: true })
+
+  // ---------- Discount and tax ----------
+  if (Number(sale.discount) > 0) {
+    const discountWidth = Math.min(width, Math.round(width * 0.6))
+    lines.push({ text: pair('(-) Discount', amount(sale.discount), discountWidth), align: 'right' })
+  }
+  const taxWidth = Math.min(width, Math.max(Math.round(width * 0.5), 20))
+  for (const taxLine of taxLines(sale, items, interState, taxWidth)) {
+    lines.push({ ...taxLine, align: 'right' })
+  }
   lines.push(divider(width))
 
-  lines.push({ text: `Payment: ${sale.paymentMethod}` })
-  lines.push({ text: pair('Paid', amount(sale.paidAmount), width) })
+  // ---------- Total ----------
+  lines.push({ text: pair('TOTAL', `Rs ${amount(sale.grandTotal)}`, width), bold: true })
+  lines.push(divider(width))
+
+  // ---------- Payment ----------
+  const method = safe(String(sale.paymentMethod ?? '')) || 'Paid'
+  lines.push({ text: pair(`${method} :`, `Rs ${amount(sale.paidAmount)}`, width) })
   if (Number(sale.balanceAmount) > 0) {
-    lines.push({ text: pair('Balance', amount(sale.balanceAmount), width), bold: true })
+    lines.push({ text: pair('Balance Due :', `Rs ${amount(sale.balanceAmount)}`, width), bold: true })
   }
   lines.push(divider(width))
 
-  lines.push(center('Thank you for dining with us!'))
+  // ---------- Footer ----------
+  lines.push({ text: 'E & O.E', align: 'right' })
+  lines.push({ text: 'Thank you for dining with us!', bold: true, align: 'center' })
   lines.push(center('Please visit again'))
-  lines.push(center('Item Management System'))
+  lines.push({ text: '' })
+  for (const part of wrap('Powered by Item Management System', width)) lines.push(center(part))
+  return lines
+}
+
+/**
+ * Diagnostic receipt: prints the same "Item ... Qty ... Amt" row using different filler characters.
+ * Print it once and see which rows keep their gaps; use that character for FILL above.
+ * (Characters are sent as-is, so the bridge's own sanitising decides what survives.)
+ */
+export function buildSpacingTestLines(paperWidth: PaperWidth | null | undefined): ThermalLine[] {
+  const width = paperColumns(paperWidth)
+  const fillers: [label: string, char: string][] = [
+    ['A space', ' '],
+    ['B nbsp', '\u00a0'],
+    ['C dot', '.'],
+    ['D underscore', '_'],
+    ['E dash', '-'],
+  ]
+  const lines: ThermalLine[] = [{ text: 'SPACING TEST', bold: true, align: 'center' }, divider(width)]
+  for (const [label, char] of fillers) {
+    const gap = Math.floor((width - 14) / 2)
+    lines.push({ text: `${label}:` })
+    lines.push({ text: `Item${char.repeat(gap)}Qty${char.repeat(width - 10 - gap)}Amt` })
+  }
+  lines.push(divider(width))
+  lines.push({ text: 'Tell which rows kept the gaps', align: 'center' })
   return lines
 }
