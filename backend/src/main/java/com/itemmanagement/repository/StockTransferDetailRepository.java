@@ -8,4 +8,6 @@ import java.util.List;
 public interface StockTransferDetailRepository extends JpaRepository<StockTransferDetail, Long> {
 
     List<StockTransferDetail> findByTransferIdOrderByItemId(Long transferId);
+
+    long countByStoreIdAndUnitIgnoreCase(Long storeId, String unit);
 }

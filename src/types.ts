@@ -1,7 +1,9 @@
 export type StoreStatus = 'ACTIVE' | 'INACTIVE'
 export type TaxType = 'GST' | 'EXEMPT'
-export type Unit = 'LITER' | 'ML' | 'KG' | 'GRAM' | 'PIECE' | 'DOZEN' | 'PACKET' | 'BOX' | 'BOTTLE'
+export type Unit = string
 export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'CREDIT'
+export type SupplierPaymentMethod = 'CASH' | 'BANK' | 'UPI' | 'CARD'
+export type SettlementStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID'
 export type BarcodeFormat = 'CODE128' | 'EAN13'
 export type PurchaseStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED'
 export type SaleStatus = 'COMPLETED' | 'CANCELLED'
@@ -112,6 +114,8 @@ export type ImportAction =
 export interface ImportSummary {
   totalRows: number
   newCategories: number
+  newUnits: number
+  reusedUnits: number
   newItems: number
   existingItems: number
   stockUpdates: number
@@ -235,6 +239,25 @@ export interface TaxMasterRequest {
   status?: StoreStatus
 }
 
+export interface UnitMaster {
+  id: number
+  storeId: number
+  unitCode: string
+  unitName: string
+  description: string | null
+  status: string
+  itemCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface UnitMasterRequest {
+  unitCode: string
+  unitName: string
+  description?: string
+  status?: StoreStatus
+}
+
 export interface Supplier {
   id: number
   supplierName: string
@@ -265,6 +288,64 @@ export interface SupplierPurchase {
   grandTotal: number
   status: string
   createdAt: string
+}
+
+export interface SupplierOutstanding {
+  supplierId: number
+  supplierCode: string
+  supplierName: string
+  totalPurchaseAmount: number
+  totalPaid: number
+  outstandingAmount: number
+  billCount: number
+  pendingBillCount: number
+}
+
+export interface SupplierBill {
+  purchaseId: number
+  purchaseNumber: string
+  invoiceNumber: string | null
+  purchaseDate: string
+  branchName: string
+  grandTotal: number
+  paidAmount: number
+  balanceAmount: number
+  settlementStatus: SettlementStatus
+}
+
+export interface SupplierPaymentAllocation {
+  purchaseId: number
+  purchaseNumber: string
+  purchaseDate: string | null
+  amount: number
+}
+
+export interface SupplierPayment {
+  id: number
+  paymentNumber: string
+  paymentDate: string
+  supplierId: number
+  supplierCode: string
+  supplierName: string
+  paymentMethod: SupplierPaymentMethod
+  amount: number
+  referenceNumber: string | null
+  remarks: string | null
+  createdBy: number | null
+  createdByName: string | null
+  createdAt: string
+  allocations: SupplierPaymentAllocation[]
+}
+
+export interface SupplierPaymentRequest {
+  supplierId: number
+  paymentDate: string
+  paymentMethod: SupplierPaymentMethod
+  amount: number
+  referenceNumber?: string
+  remarks?: string
+  clientReference: string
+  purchaseIds: number[]
 }
 
 export interface Branch {
@@ -569,6 +650,7 @@ export interface Purchase {
   grandTotal: number
   paidAmount: number
   balanceAmount: number
+  paymentStatus: SettlementStatus
   notes: string | null
   status: PurchaseStatus
   createdAt: string
@@ -581,6 +663,7 @@ export interface PurchaseRequest {
   invoiceNumber?: string
   purchaseDate: string
   discount: number | ''
+  payableAmount?: number | ''
   paidAmount: number | ''
   notes?: string
   status: 'DRAFT' | 'COMPLETED'
@@ -900,6 +983,85 @@ export interface GstReport {
     taxAmount: number
     invoiceCount: number
   }
+}
+
+export interface SupplierOutstandingReport {
+  rows: {
+    supplierId: number
+    supplierCode: string
+    supplierName: string
+    totalPurchaseAmount: number
+    totalPaid: number
+    outstandingAmount: number
+    billCount: number
+    pendingBillCount: number
+  }[]
+  totals: {
+    totalPurchaseAmount: number
+    totalPaid: number
+    outstandingAmount: number
+    supplierCount: number
+  }
+}
+
+export interface SupplierBillReport {
+  rows: {
+    supplierId: number
+    supplierCode: string
+    supplierName: string
+    purchaseNumber: string
+    invoiceNumber: string | null
+    purchaseDate: string
+    branchName: string
+    grandTotal: number
+    paidAmount: number
+    balanceAmount: number
+    settlementStatus: SettlementStatus
+  }[]
+  totals: {
+    grandTotal: number
+    paidAmount: number
+    balanceAmount: number
+    bills: number
+  }
+}
+
+export interface SupplierPaymentReport {
+  rows: {
+    paymentNumber: string
+    paymentDate: string
+    supplierCode: string
+    supplierName: string
+    bills: string
+    paymentMethod: SupplierPaymentMethod
+    amount: number
+    referenceNumber: string | null
+    remarks: string | null
+    createdByName: string | null
+  }[]
+  totals: {
+    amount: number
+    payments: number
+  }
+}
+
+export interface SupplierLedgerReport {
+  supplierId: number
+  supplierCode: string
+  supplierName: string
+  openingBalance: number
+  rows: {
+    date: string
+    type: 'PURCHASE' | 'PAYMENT'
+    reference: string
+    description: string
+    debit: number
+    credit: number
+    balance: number
+  }[]
+  totalDebit: number
+  totalCredit: number
+  closingBalance: number
 }
 
 export interface ApiErrorPayload {

@@ -4,6 +4,7 @@ import com.itemmanagement.dto.imports.ImportBatchResponse;
 import com.itemmanagement.dto.imports.ImportPreviewResponse;
 import com.itemmanagement.dto.imports.ImportRowResponse;
 import com.itemmanagement.dto.imports.ImportSummary;
+import com.itemmanagement.dto.master.UnitMasterRequest;
 import com.itemmanagement.entity.Branch;
 import com.itemmanagement.entity.BranchInventory;
 import com.itemmanagement.entity.Category;
@@ -11,12 +12,12 @@ import com.itemmanagement.entity.Item;
 import com.itemmanagement.entity.ItemImportBatch;
 import com.itemmanagement.entity.ItemImportRow;
 import com.itemmanagement.entity.TaxMaster;
+import com.itemmanagement.entity.UnitMaster;
 import com.itemmanagement.entity.enums.ImportAction;
 import com.itemmanagement.entity.enums.ImportBatchStatus;
 import com.itemmanagement.entity.enums.ImportValidationStatus;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchInventoryRepository;
 import com.itemmanagement.repository.BranchRepository;
@@ -27,10 +28,12 @@ import com.itemmanagement.repository.ItemImportRowRepository;
 import com.itemmanagement.repository.ItemRepository;
 import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.TaxMasterRepository;
+import com.itemmanagement.repository.UnitMasterRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
 import com.itemmanagement.util.Pagination;
+import com.itemmanagement.util.UnitConverter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -69,12 +72,11 @@ import java.util.stream.Collectors;
 public class ItemImportService {
 
     private static final Pattern ITEM_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]{2,50}$");
+    private static final Pattern UNIT_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]{1,20}$");
     private static final BigDecimal DEFAULT_MIN_STOCK = new BigDecimal("5");
     private static final BigDecimal MAX_RATE = new BigDecimal("9999999999.99");
     private static final BigDecimal MAX_ROW_RATE = new BigDecimal("999999999999.99");
     private static final BigDecimal MAX_QUANTITY = new BigDecimal("999999999999999.999");
-    private static final String UNIT_LIST =
-            "LITER, ML, KG, GRAM, PIECE, PACKET, BOX, BOTTLE, DOZEN";
     private static final long MAX_FILE_BYTES = 10L * 1024 * 1024;
 
     private final ItemImportExcelService excelService;
@@ -87,6 +89,8 @@ public class ItemImportService {
     private final BranchInventoryRepository inventoryRepository;
     private final InventoryTransactionRepository transactionRepository;
     private final StoreRepository storeRepository;
+    private final UnitMasterRepository unitMasterRepository;
+    private final UnitMasterService unitMasterService;
     private final InventoryService inventoryService;
     private final NumberGenerator numberGenerator;
     private final AuditService auditService;
@@ -99,6 +103,7 @@ public class ItemImportService {
         return excelService.template(
                 categoryRepository.findByStoreIdOrderByCategoryName(storeId),
                 taxMasterRepository.findByStoreIdOrderByGstPercentageAscTaxNameAsc(storeId),
+                unitMasterRepository.findByStoreIdOrderByUnitCodeAsc(storeId),
                 "The branch you select when uploading the file");
     }
 
@@ -134,7 +139,7 @@ public class ItemImportService {
             String message = "This exact file was already imported as "
                     + previous.get().getImportNumber() + ". It cannot be imported again for this branch.";
             for (ItemImportExcelService.ParsedRow parsedRow : parsed.rows()) {
-                ItemImportRow row = toRow(storeId, batch.getId(), parsedRow);
+                ItemImportRow row = toRow(storeId, batch.getId(), parsedRow, context);
                 row.setImportAction(ImportAction.ALREADY_IMPORTED);
                 row.setValidationStatus(ImportValidationStatus.VALID);
                 row.setErrorMessage(message);
@@ -144,7 +149,7 @@ public class ItemImportService {
             Map<String, Integer> codeSeen = new HashMap<>();
             Map<String, Integer> nameSeen = new HashMap<>();
             for (ItemImportExcelService.ParsedRow parsedRow : parsed.rows()) {
-                ItemImportRow row = toRow(storeId, batch.getId(), parsedRow);
+                ItemImportRow row = toRow(storeId, batch.getId(), parsedRow, context);
                 if (row.isParseFailed()) {
                     rows.add(row);
                     continue;
@@ -165,8 +170,11 @@ public class ItemImportService {
         rowRepository.saveAll(rows);
 
         Counts counts = countActions(rows);
+        UnitPlan unitPlan = unitPlan(rows, context);
         batch.setTotalRows(rows.size());
         batch.setNewCategories(missingCategoryCount(rows, context.categoriesByKey().keySet()));
+        batch.setNewUnits(unitPlan.newUnits());
+        batch.setReusedUnits(unitPlan.reusedUnits());
         batch.setNewItems(counts.newItems());
         batch.setExistingItems(counts.existingItems());
         batch.setStockUpdates(plannedStockUpdates(rows));
@@ -281,6 +289,9 @@ public class ItemImportService {
             throw ApiException.badRequest("Nothing to import. Every row is already imported for this branch.");
         }
 
+        int createdUnits = prepareUnits(rows, context, storeId);
+        int reusedUnits = reusedUnits(rows, context);
+
         Map<String, Category> categories = new LinkedHashMap<>(context.categoriesByKey());
         int createdCategories = 0;
         for (ItemImportRow row : rows) {
@@ -327,7 +338,7 @@ public class ItemImportService {
                         .barcodeFormat(barcode.format())
                         .itemName(clean(row.getItemName()))
                         .description(clean(row.getDescription()))
-                        .baseUnit(Unit.valueOf(row.getUnit()))
+                        .baseUnit(row.getUnit())
                         .rate(row.getRate())
                         .minStockLevel(row.getMinimumStock() == null
                                 ? DEFAULT_MIN_STOCK : row.getMinimumStock())
@@ -360,6 +371,8 @@ public class ItemImportService {
         batch.setSuccessRows(counts.newItems() + counts.existingItems());
         batch.setFailedRows(counts.duplicateRows() + counts.invalidRows());
         batch.setNewCategories(createdCategories);
+        batch.setNewUnits(createdUnits);
+        batch.setReusedUnits(reusedUnits);
         batch.setNewItems(counts.newItems());
         batch.setExistingItems(counts.existingItems());
         batch.setStockUpdates(stockUpdates);
@@ -401,7 +414,9 @@ public class ItemImportService {
         String name = clean(row.getItemName());
         String categoryName = clean(row.getCategoryName());
         String taxName = clean(row.getTaxName());
-        Unit unit = parseUnit(row.getUnit());
+        String unit = resolveUnit(row.getUnit(), context);
+        String rawUnit = clean(row.getUnit());
+        String autoUnitCode = null;
         BigDecimal rate = row.getRate();
         BigDecimal openingStock = row.getOpeningStock();
         BigDecimal minimumStock = row.getMinimumStock();
@@ -419,10 +434,14 @@ public class ItemImportService {
         } else if (categoryName.length() > 120) {
             errors.add("Category name must be 120 characters or less");
         }
-        if (row.getUnit() == null || row.getUnit().isBlank()) {
+        if (rawUnit == null) {
             errors.add("Unit is required");
         } else if (unit == null) {
-            errors.add("Invalid unit '" + row.getUnit() + "'. Allowed units: " + UNIT_LIST);
+            autoUnitCode = UnitConverter.normalize(rawUnit);
+            if (!UNIT_CODE_PATTERN.matcher(autoUnitCode).matches()) {
+                errors.add("Unit '" + rawUnit + "' is not in Unit Master and cannot be created automatically. "
+                        + "Unit codes allow 1-20 letters, numbers, dot, underscore or hyphen.");
+            }
         }
         if (rate == null) {
             errors.add("Rate is required");
@@ -453,6 +472,7 @@ public class ItemImportService {
             return Plan.invalid(join(errors));
         }
 
+        String effectiveUnit = unit == null ? autoUnitCode : unit;
         TaxMaster tax = context.taxesByKey().get(key(taxName));
         if (tax == null) {
             return Plan.invalid("Tax '" + taxName + "' is not available for this store");
@@ -469,9 +489,10 @@ public class ItemImportService {
                     return Plan.invalid("Item code " + code + " already exists in category '"
                             + itemCategoryName + "', not '" + categoryName + "'");
                 }
-                if (existing.getBaseUnit() != unit) {
+                if (effectiveUnit == null || !existing.getBaseUnit().equalsIgnoreCase(effectiveUnit)) {
                     return Plan.invalid("Item code " + code + " uses unit "
-                            + existing.getBaseUnit() + ", not " + unit);
+                            + existing.getBaseUnit() + ", not "
+                            + (effectiveUnit == null ? rawUnit : effectiveUnit));
                 }
             }
         } else if (category != null) {
@@ -527,7 +548,7 @@ public class ItemImportService {
     }
 
     private ItemImportRow toRow(Long storeId, Long batchId,
-                                ItemImportExcelService.ParsedRow parsed) {
+                                ItemImportExcelService.ParsedRow parsed, ImportContext context) {
         List<String> errors = new ArrayList<>();
         String code = parsed.itemCode() == null ? null
                 : parsed.itemCode().trim().toUpperCase(Locale.ROOT);
@@ -577,7 +598,11 @@ public class ItemImportService {
                 minimum = scale(minimum, 3);
             }
         }
-        Unit unit = parseUnit(parsed.unit());
+        String unit = resolveUnit(parsed.unit(), context);
+        String rawUnit = clean(parsed.unit());
+        if (unit == null && rawUnit != null && rawUnit.length() > 20) {
+            errors.add("Unit must be 20 characters or less when it is not already in Unit Master");
+        }
 
         return ItemImportRow.builder()
                 .batchId(batchId)
@@ -586,7 +611,7 @@ public class ItemImportService {
                 .itemCode(truncate(code, 50))
                 .itemName(truncate(name, 150))
                 .categoryName(truncate(category, 120))
-                .unit(truncate(unit == null ? clean(parsed.unit()) : unit.name(), 20))
+                .unit(unit == null ? truncate(clean(parsed.unit()), 20) : unit)
                 .rate(rate)
                 .taxName(truncate(tax, 120))
                 .openingStock(opening)
@@ -613,6 +638,12 @@ public class ItemImportService {
             taxesByKey.putIfAbsent(key(tax.getTaxName()), tax);
         }
 
+        Map<String, String> unitsByKey = new HashMap<>();
+        for (UnitMaster unit : unitMasterRepository.findByStoreIdOrderByUnitCodeAsc(storeId)) {
+            unitsByKey.putIfAbsent(key(unit.getUnitCode()), unit.getUnitCode());
+            unitsByKey.putIfAbsent(key(unit.getUnitName()), unit.getUnitCode());
+        }
+
         List<Item> items = itemRepository.findByStoreIdOrderByItemName(storeId);
         Map<String, Item> itemsByCode = new HashMap<>();
         Map<String, List<Item>> itemsByNameCategory = new HashMap<>();
@@ -632,7 +663,7 @@ public class ItemImportService {
             }
         }
 
-        return new ImportContext(categoriesByKey, categoryById, taxesByKey,
+        return new ImportContext(categoriesByKey, categoryById, taxesByKey, unitsByKey,
                 itemsByCode, itemsByNameCategory, alreadyStocked);
     }
 
@@ -651,6 +682,8 @@ public class ItemImportService {
         ImportSummary summary = new ImportSummary(
                 batch.getTotalRows(),
                 batch.getNewCategories(),
+                batch.getNewUnits(),
+                batch.getReusedUnits(),
                 batch.getNewItems(),
                 batch.getExistingItems(),
                 batch.getStockUpdates(),
@@ -754,6 +787,9 @@ public class ItemImportService {
                         batch.setStatus(ImportBatchStatus.FAILED);
                         batch.setCompletedAt(Instant.now());
                         batch.setFailureMessage(truncate(rootMessage(error), 500));
+                        // Nothing was committed, so no unit or item counts survive.
+                        batch.setNewUnits(0);
+                        batch.setReusedUnits(0);
                         batchRepository.save(batch);
                     }));
         } catch (Exception e) {
@@ -825,23 +861,91 @@ public class ItemImportService {
         return value == null ? null : value.setScale(scale, RoundingMode.HALF_UP);
     }
 
-    private Unit parseUnit(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
+    /**
+     * Resolves every importable row to a stored unit code, creating Unit Master
+     * records for units typed in the file that do not exist yet (once per
+     * distinct code). Rows are rewritten to the canonical code so imported items
+     * always reference the stored unit.
+     */
+    private int prepareUnits(List<ItemImportRow> rows, ImportContext context, Long storeId) {
+        Map<String, String> resolved = new HashMap<>();
+        int createdUnits = 0;
+        for (ItemImportRow row : rows) {
+            if (!importsRow(row)) {
+                continue;
+            }
+            String existing = resolveUnit(row.getUnit(), context);
+            if (existing != null) {
+                row.setUnit(existing);
+                continue;
+            }
+            if (row.getImportAction() != ImportAction.NEW_ITEM) {
+                continue;
+            }
+            String typed = clean(row.getUnit());
+            if (typed == null) {
+                continue;
+            }
+            String code = UnitConverter.normalize(typed);
+            String key = code.toLowerCase(Locale.ROOT);
+            String canonical = resolved.get(key);
+            if (canonical == null) {
+                Optional<UnitMaster> stored = unitMasterRepository
+                        .findByStoreIdAndUnitCodeIgnoreCase(storeId, code);
+                if (stored.isPresent()) {
+                    canonical = stored.get().getUnitCode();
+                } else {
+                    canonical = unitMasterService.create(new UnitMasterRequest(
+                            code, code, null, StoreStatus.ACTIVE)).unitCode();
+                    createdUnits++;
+                }
+                resolved.put(key, canonical);
+            }
+            row.setUnit(canonical);
         }
-        String normalized = value.trim().toUpperCase(Locale.ROOT).replace(" ", "");
-        return switch (normalized) {
-            case "LITER", "LITRE", "LITERS", "LITRES", "L" -> Unit.LITER;
-            case "ML", "MILLILITER", "MILLILITRE", "MILLILITERS", "MILLILITRES" -> Unit.ML;
-            case "KG", "KGS", "KILOGRAM", "KILOGRAMS" -> Unit.KG;
-            case "GRAM", "GRAMS", "G", "GM", "GMS" -> Unit.GRAM;
-            case "PIECE", "PIECES", "PCS", "PC", "NOS", "UNIT", "UNITS" -> Unit.PIECE;
-            case "PACKET", "PACKETS", "PKT", "PKTS" -> Unit.PACKET;
-            case "BOX", "BOXES" -> Unit.BOX;
-            case "BOTTLE", "BOTTLES", "BTL", "BTLS" -> Unit.BOTTLE;
-            case "DOZEN", "DOZENS", "DZ", "DZN" -> Unit.DOZEN;
-            default -> null;
-        };
+        return createdUnits;
+    }
+
+    private int reusedUnits(List<ItemImportRow> rows, ImportContext context) {
+        Set<String> reused = new LinkedHashSet<>();
+        for (ItemImportRow row : rows) {
+            if (!importsRow(row)) {
+                continue;
+            }
+            String unit = resolveUnit(row.getUnit(), context);
+            if (unit != null) {
+                reused.add(unit);
+            }
+        }
+        return reused.size();
+    }
+
+    private UnitPlan unitPlan(List<ItemImportRow> rows, ImportContext context) {
+        Set<String> newKeys = new LinkedHashSet<>();
+        Set<String> reused = new LinkedHashSet<>();
+        for (ItemImportRow row : rows) {
+            if (!importsRow(row)) {
+                continue;
+            }
+            String unit = resolveUnit(row.getUnit(), context);
+            if (unit != null) {
+                reused.add(unit);
+            } else if (row.getImportAction() == ImportAction.NEW_ITEM && clean(row.getUnit()) != null) {
+                newKeys.add(UnitConverter.normalize(clean(row.getUnit())).toLowerCase(Locale.ROOT));
+            }
+        }
+        return new UnitPlan(newKeys.size(), reused.size());
+    }
+
+    private boolean importsRow(ItemImportRow row) {
+        return row.getImportAction() == ImportAction.NEW_ITEM
+                || row.getImportAction() == ImportAction.EXISTING_ITEM_OPENING_STOCK
+                || row.getImportAction() == ImportAction.EXISTING_ITEM_NO_STOCK;
+    }
+
+    private String resolveUnit(String value, ImportContext context) {
+        String unitKey = key(value);
+        return unitKey == null ? null : context.unitsByKey().get(unitKey);
     }
 
     private String clean(String value) {
@@ -891,10 +995,14 @@ public class ItemImportService {
                           int invalidRows, int alreadyImportedRows) {
     }
 
+    private record UnitPlan(int newUnits, int reusedUnits) {
+    }
+
     private record ImportContext(
             Map<String, Category> categoriesByKey,
             Map<Long, Category> categoryById,
             Map<String, TaxMaster> taxesByKey,
+            Map<String, String> unitsByKey,
             Map<String, Item> itemsByCode,
             Map<String, List<Item>> itemsByNameCategory,
             Set<Long> alreadyStocked

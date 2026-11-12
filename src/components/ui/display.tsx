@@ -30,14 +30,17 @@ function statusTone(status: string | null | undefined): BadgeTone {
     case 'COMPLETED':
     case 'RECEIVED':
     case 'APPROVED':
+    case 'PAID':
       return 'green'
     case 'CANCELLED':
     case 'REJECTED':
     case 'INACTIVE':
+    case 'UNPAID':
       return 'red'
     case 'DRAFT':
       return 'slate'
     case 'PENDING':
+    case 'PARTIALLY_PAID':
       return 'amber'
     case 'DISPATCHED':
       return 'blue'

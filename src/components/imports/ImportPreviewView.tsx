@@ -24,6 +24,8 @@ const actionTones: Record<ImportAction, 'brand' | 'green' | 'slate' | 'amber' | 
 const summaryItems: { key: keyof ImportPreview['summary']; label: string; tone?: string }[] = [
   { key: 'totalRows', label: 'Total Excel Rows' },
   { key: 'newCategories', label: 'New Categories' },
+  { key: 'newUnits', label: 'New Units' },
+  { key: 'reusedUnits', label: 'Units Reused' },
   { key: 'newItems', label: 'New Items' },
   { key: 'existingItems', label: 'Existing Items' },
   { key: 'stockUpdates', label: 'Stock Updates' },

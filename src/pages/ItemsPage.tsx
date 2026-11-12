@@ -25,10 +25,10 @@ import { BarcodeSvg } from '../components/barcode/BarcodeSvg'
 import { ItemImportDialog } from '../components/imports/ItemImportDialog'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
+import { useUnits } from '../hooks/useUnits'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { BARCODE_FORMATS, validateBarcode } from '../lib/barcode'
 import { formatDateTime, money, qty, titleCase } from '../lib/format'
-import { UNIT_OPTIONS } from '../lib/units'
 import { useAuthStore } from '../store/auth'
 import { notify } from '../store/ui'
 import type {
@@ -65,7 +65,7 @@ const emptyForm: FormState = {
   description: '',
   categoryId: '',
   taxId: '',
-  baseUnit: 'PIECE',
+  baseUnit: '',
   rate: '',
   minStockLevel: '0',
   status: 'ACTIVE',
@@ -113,9 +113,20 @@ export function ItemsPage() {
   )
   const activeTaxes = taxes?.filter((tax) => tax.status === 'ACTIVE') ?? []
   const defaultTaxId = activeTaxes.find((tax) => tax.taxType === 'GST')?.id ?? activeTaxes[0]?.id ?? ''
+  const { units } = useUnits()
+  const activeUnits = units.filter((unit) => unit.status === 'ACTIVE')
+  const defaultUnit = activeUnits[0]?.unitCode ?? ''
+  const unitChoices = activeUnits.map((unit) => ({
+    value: unit.unitCode,
+    label: `${unit.unitCode} — ${unit.unitName}`,
+  }))
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Item | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
+  const currentUnitVisible = unitChoices.some((option) => option.value === form.baseUnit)
+  if (form.baseUnit && !currentUnitVisible) {
+    unitChoices.unshift({ value: form.baseUnit, label: `${form.baseUnit} (inactive)` })
+  }
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -169,7 +180,7 @@ export function ItemsPage() {
 
   const openCreate = () => {
     setEditing(null)
-    setForm({ ...emptyForm, categoryId: categories?.[0]?.id ?? '', taxId: defaultTaxId })
+    setForm({ ...emptyForm, categoryId: categories?.[0]?.id ?? '', taxId: defaultTaxId, baseUnit: defaultUnit })
     setFormErrors({})
     setFormError(null)
     setModalOpen(true)
@@ -201,6 +212,7 @@ export function ItemsPage() {
     if (!form.itemName.trim()) nextErrors.itemName = 'Item name is required'
     if (!form.categoryId) nextErrors.categoryId = 'Select a category'
     if (!form.taxId) nextErrors.taxId = 'Select a tax slab'
+    if (!form.baseUnit) nextErrors.baseUnit = 'Select a unit'
     if (form.rate === '' || Number(form.rate) <= 0) nextErrors.rate = 'Rate must be greater than zero'
     if (form.minStockLevel === '') nextErrors.minStockLevel = 'Minimum stock is required'
     if (form.barcode.trim()) {
@@ -602,14 +614,20 @@ export function ItemsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Base unit" required error={formErrors.baseUnit} hint="Stock is tracked in this unit">
+            <Field
+              label="Base unit"
+              required
+              error={formErrors.baseUnit}
+              hint="Managed in Unit Master. Stock is tracked in this unit."
+            >
               <Select
                 value={form.baseUnit}
                 onChange={(event) => setForm({ ...form, baseUnit: event.target.value as Unit })}
               >
-                {UNIT_OPTIONS.map((option) => (
+                {unitChoices.length === 0 && <option value="">No units configured</option>}
+                {unitChoices.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {titleCase(option.value)}
+                    {option.label}
                   </option>
                 ))}
               </Select>

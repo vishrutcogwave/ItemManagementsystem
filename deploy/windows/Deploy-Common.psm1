@@ -161,13 +161,15 @@ function Invoke-ImsBuildFrontend {
 
     Push-Location -LiteralPath $RepoRoot
     try {
+        # Native command output must not leak into the function's return value;
+        # callers expect the dist path as the only result.
         if (-not $SkipInstall) {
-            & npm ci
+            & npm ci 2>&1 | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
         }
-        & npm run lint
+        & npm run lint 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "npm run lint failed" }
-        & npm run build
+        & npm run build 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
     } finally {
         Pop-Location
@@ -221,7 +223,9 @@ function Invoke-ImsBuildBackend {
     $backend = Join-Path $RepoRoot 'backend'
     Push-Location -LiteralPath $backend
     try {
-        & .\gradlew.bat clean test bootJar
+        # Keep Gradle output out of the function's return value; the callers
+        # assign the result directly to the jar path.
+        & .\gradlew.bat clean test bootJar 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "Gradle build/tests failed" }
     } finally {
         Pop-Location

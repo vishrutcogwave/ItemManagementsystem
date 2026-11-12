@@ -22,6 +22,7 @@ import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.security.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
 
     private static final String PLATFORM_CODE = "PLATFORM";
@@ -52,7 +54,7 @@ public class AuthService {
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
-    public AuthResponse login(LoginRequest request, String clientAddress) {
+    public AuthResponse login(LoginRequest request, String clientAddress, String currentToken) {
         String storeCode = request.storeCode().trim();
         String attemptKey = loginAttemptService.key(storeCode, request.username(), clientAddress);
         loginAttemptService.checkAllowed(attemptKey);
@@ -73,7 +75,7 @@ public class AuthService {
         } catch (ApiException ex) {
             if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
                 // Blacklist any active token that was used to make this failed attempt
-                blacklistTokensAfterFailedLogin(storeCode, request.username(), clientAddress);
+                blacklistTokensAfterFailedLogin(currentToken);
                 loginAttemptService.recordFailure(attemptKey);
             }
             throw ex;
@@ -264,17 +266,16 @@ public class AuthService {
         }
     }
 
-    private void blacklistTokensAfterFailedLogin(String storeCode, String username, String clientAddress) {
+    private void blacklistTokensAfterFailedLogin(String currentToken) {
+        if (currentToken == null || currentToken.isBlank()) return;
         try {
-            // Find a token that matches the failed credentials to blacklist it
-            // The key is: store_code|username|client_address
-            String key = storeCode + "|" + username + "|" + clientAddress;
-            
-            // Parse any active JWT we can find for this user
-            // We'll check both platform admin login (username only) and store user login (store+user)
-            blacklistService.revokeActiveTokens(storeCode, username, clientAddress);
+            // Revoke the token presented with the failed attempt so a session
+            // tied to these credentials cannot be reused. This runs in its own
+            // transaction because the login failure rolls the outer one back.
+            Claims claims = jwtService.parse(currentToken.trim());
+            blacklistService.revokeInNewTransaction(claims.getId(), jwtService.expiry(claims));
         } catch (Exception e) {
-            log.debug(\"Failed to blacklist tokens after failed login: {}\", e.getMessage());
+            log.debug("Failed to blacklist tokens after failed login: {}", e.getMessage());
         }
     }
 }

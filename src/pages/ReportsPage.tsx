@@ -6,7 +6,7 @@ import { useDebounce } from '../hooks/useDebounce'
 import { api } from '../lib/api'
 import { monthStart, today } from '../lib/format'
 import { useAuthStore } from '../store/auth'
-import type { Category, Item } from '../types'
+import type { Category, Item, Supplier } from '../types'
 import { BranchReportView } from './reports/BranchReportView'
 import { GstReportView } from './reports/GstReportView'
 import { LowStockReportView } from './reports/LowStockReportView'
@@ -15,6 +15,10 @@ import { PurchaseReportView } from './reports/PurchaseReportView'
 import { SalesReportView } from './reports/SalesReportView'
 import { StockReportView } from './reports/StockReportView'
 import { StoreReportView } from './reports/StoreReportView'
+import { SupplierBillsReportView } from './reports/SupplierBillsReportView'
+import { SupplierLedgerReportView } from './reports/SupplierLedgerReportView'
+import { SupplierOutstandingReportView } from './reports/SupplierOutstandingReportView'
+import { SupplierPaymentsReportView } from './reports/SupplierPaymentsReportView'
 import type { ReportFilters } from './reports/types'
 
 const TABS = [
@@ -26,7 +30,15 @@ const TABS = [
   { key: 'branches', label: 'Branch performance' },
   { key: 'store', label: 'Store summary' },
   { key: 'low-stock', label: 'Low stock' },
+  { key: 'supplier-outstanding', label: 'Supplier outstanding' },
+  { key: 'supplier-bills', label: 'Bill-wise outstanding' },
+  { key: 'supplier-payments', label: 'Supplier payments' },
+  { key: 'supplier-ledger', label: 'Supplier ledger' },
 ]
+
+const ITEM_FILTER_TABS = ['sales', 'purchases', 'stock', 'profit', 'gst']
+const SUPPLIER_FILTER_TABS = ['supplier-outstanding', 'supplier-bills', 'supplier-payments', 'supplier-ledger']
+const NO_DATE_TABS = ['low-stock', 'supplier-outstanding']
 
 export function ReportsPage() {
   const { selectedBranchId, allBranches, branches } = useAuthStore()
@@ -35,6 +47,7 @@ export function ReportsPage() {
   const [to, setTo] = useState(today())
   const [categoryId, setCategoryId] = useState('')
   const [itemId, setItemId] = useState('')
+  const [supplierId, setSupplierId] = useState('')
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebounce(search)
 
@@ -43,6 +56,14 @@ export function ReportsPage() {
     [],
   )
   const { data: items } = useApi<Item[]>(() => api.get('/items/options').then((response) => response.data), [])
+  const { data: suppliers } = useApi<Supplier[]>(
+    () => api.get('/suppliers/options').then((response) => response.data),
+    [],
+  )
+
+  const showItems = ITEM_FILTER_TABS.includes(tab)
+  const showSuppliers = SUPPLIER_FILTER_TABS.includes(tab)
+  const showDates = !NO_DATE_TABS.includes(tab)
 
   const branchLabel = selectedBranchId
     ? (branches.find((branch) => branch.id === selectedBranchId)?.branchName ?? 'Selected branch')
@@ -57,6 +78,7 @@ export function ReportsPage() {
     branchLabel,
     categoryId,
     itemId,
+    supplierId,
     search: debouncedSearch,
   }
 
@@ -65,6 +87,7 @@ export function ReportsPage() {
     setTo(today())
     setCategoryId('')
     setItemId('')
+    setSupplierId('')
     setSearch('')
   }
 
@@ -78,7 +101,7 @@ export function ReportsPage() {
       <Card className="mb-4 p-4">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            {tab !== 'low-stock' && (
+            {showDates && (
               <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-none">
                 <CalendarRange className="h-4 w-4 shrink-0 text-slate-400" />
                 <Input
@@ -113,25 +136,39 @@ export function ReportsPage() {
             </Button>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Select className="sm:w-44" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
-              <option value="">All categories</option>
-              {categories?.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.categoryName}
-                </option>
-              ))}
-            </Select>
-            <Select className="sm:w-48" value={itemId} onChange={(event) => setItemId(event.target.value)}>
-              <option value="">All items</option>
-              {items?.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.itemName}
-                </option>
-              ))}
-            </Select>
+            {showItems && (
+              <>
+                <Select className="sm:w-44" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+                  <option value="">All categories</option>
+                  {categories?.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.categoryName}
+                    </option>
+                  ))}
+                </Select>
+                <Select className="sm:w-48" value={itemId} onChange={(event) => setItemId(event.target.value)}>
+                  <option value="">All items</option>
+                  {items?.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.itemName}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            )}
+            {showSuppliers && (
+              <Select className="sm:w-56" value={supplierId} onChange={(event) => setSupplierId(event.target.value)}>
+                <option value="">All suppliers</option>
+                {suppliers?.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.supplierName}
+                  </option>
+                ))}
+              </Select>
+            )}
             <SearchInput
               className="sm:min-w-40 sm:flex-1"
-              placeholder="Search item or code…"
+              placeholder={showSuppliers ? 'Search supplier, bill or reference…' : 'Search item or code…'}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -148,6 +185,10 @@ export function ReportsPage() {
       {tab === 'branches' && <BranchReportView filters={filters} />}
       {tab === 'store' && <StoreReportView filters={filters} />}
       {tab === 'low-stock' && <LowStockReportView filters={filters} />}
+      {tab === 'supplier-outstanding' && <SupplierOutstandingReportView filters={filters} />}
+      {tab === 'supplier-bills' && <SupplierBillsReportView filters={filters} />}
+      {tab === 'supplier-payments' && <SupplierPaymentsReportView filters={filters} />}
+      {tab === 'supplier-ledger' && <SupplierLedgerReportView filters={filters} />}
     </div>
   )
 }

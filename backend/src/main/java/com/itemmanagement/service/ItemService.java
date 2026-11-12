@@ -50,6 +50,7 @@ public class ItemService {
     private final InventoryTransactionRepository transactionRepository;
     private final AuditService auditService;
     private final BarcodeService barcodeService;
+    private final UnitMasterService unitMasterService;
 
     @Transactional(readOnly = true)
     public PageResponse<ItemResponse> list(String search, Long categoryId, StoreStatus status,
@@ -110,6 +111,7 @@ public class ItemService {
         Long storeId = TenantContext.storeId();
         Category category = category(request.categoryId(), storeId);
         TaxMaster tax = tax(request.taxId(), storeId, null);
+        String baseUnit = unitMasterService.requireForItem(storeId, request.baseUnit(), null);
         String code = request.itemCode().trim().toUpperCase();
         if (itemRepository.existsByStoreIdAndItemCodeIgnoreCase(storeId, code)) {
             throw ApiException.conflict("An item with this code already exists");
@@ -126,7 +128,7 @@ public class ItemService {
                 .itemName(request.itemName().trim())
                 .description(request.description() == null || request.description().isBlank()
                         ? null : request.description().trim())
-                .baseUnit(request.baseUnit())
+                .baseUnit(baseUnit)
                 .rate(request.rate())
                 .minStockLevel(request.minStockLevel())
                 .status(request.status() == null ? StoreStatus.ACTIVE : request.status())
@@ -141,6 +143,7 @@ public class ItemService {
         Item item = find(id, storeId);
         Category category = category(request.categoryId(), storeId);
         TaxMaster tax = tax(request.taxId(), storeId, item.getTaxId());
+        String baseUnit = unitMasterService.requireForItem(storeId, request.baseUnit(), item.getBaseUnit());
         String code = request.itemCode().trim().toUpperCase();
         if (!item.getItemCode().equalsIgnoreCase(code)
                 && itemRepository.existsByStoreIdAndItemCodeIgnoreCase(storeId, code)) {
@@ -156,7 +159,7 @@ public class ItemService {
         item.setItemName(request.itemName().trim());
         item.setDescription(request.description() == null || request.description().isBlank()
                 ? null : request.description().trim());
-        item.setBaseUnit(request.baseUnit());
+        item.setBaseUnit(baseUnit);
         item.setRate(request.rate());
         item.setMinStockLevel(request.minStockLevel());
         if (request.status() != null) {
@@ -195,7 +198,7 @@ public class ItemService {
                     stock, min,
                     inv == null ? BigDecimal.ZERO : inv.getPurchasePrice(),
                     inv == null ? item.getRate() : inv.getSellingPrice(),
-                    item.getBaseUnit().name(), stock.compareTo(min) <= 0);
+                    item.getBaseUnit(), stock.compareTo(min) <= 0);
         }).toList();
     }
 
@@ -220,7 +223,7 @@ public class ItemService {
                         branches.containsKey(t.getBranchId()) ? branches.get(t.getBranchId()).getBranchName() : "",
                         item.getId(), item.getItemName(), t.getTransactionType().name(), t.getReferenceType(),
                         t.getReferenceNumber(), t.getQuantityIn(), t.getQuantityOut(), t.getBalanceAfter(),
-                        item.getBaseUnit().name(), t.getNotes(), t.getTransactionDate()))
+                        item.getBaseUnit(), t.getNotes(), t.getTransactionDate()))
                 .toList();
     }
 
@@ -256,7 +259,7 @@ public class ItemService {
                     return new PosItemResponse(item.getId(), item.getItemCode(), item.getBarcode(),
                             item.getBarcodeFormat().name(), item.getItemName(),
                             item.getCategoryId(), category == null ? "" : category.getCategoryName(),
-                            item.getBaseUnit().name(), price, stock, stock.compareTo(min) <= 0,
+                            item.getBaseUnit(), price, stock, stock.compareTo(min) <= 0,
                             item.getTaxId(), tax == null ? "" : tax.getTaxName(),
                             tax == null ? BigDecimal.ZERO : tax.getGstPercentage(),
                             tax == null ? "EXEMPT" : tax.getTaxType().name(), store.isTaxInclusive());
@@ -307,7 +310,7 @@ public class ItemService {
                 item.getTaxId(), tax == null ? "" : tax.getTaxName(),
                 tax == null ? BigDecimal.ZERO : tax.getGstPercentage(),
                 tax == null ? "EXEMPT" : tax.getTaxType().name(),
-                item.getBaseUnit().name(),
+                item.getBaseUnit(),
                 item.getRate(), item.getMinStockLevel(),
                 item.getStatus().name(), item.getCreatedAt());
     }

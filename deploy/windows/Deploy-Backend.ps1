@@ -38,7 +38,7 @@ if (-not $SkipConnectivityTest) {
     $preflight = Get-ImsRemotePreflight -Config $cfg
     Write-Host '--- remote preflight (read-only) ---'
     Write-Host $preflight
-    if ($preflight -notmatch 'health=200') {
+    if (($preflight -join "`n") -notmatch 'health=200') {
         throw 'Remote preflight failed: local /api/health is not 200. Fix the service before deploying.'
     }
 }

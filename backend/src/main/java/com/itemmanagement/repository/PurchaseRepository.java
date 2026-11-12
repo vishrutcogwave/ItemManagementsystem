@@ -2,9 +2,11 @@ package com.itemmanagement.repository;
 
 import com.itemmanagement.entity.Purchase;
 import com.itemmanagement.entity.enums.PurchaseStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -72,4 +74,33 @@ public interface PurchaseRepository extends JpaRepository<Purchase, Long> {
                           @Param("to") LocalDate to);
 
     long countByStoreId(Long storeId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p from Purchase p
+            where p.storeId = :storeId and p.id in :ids
+            order by p.id
+            """)
+    List<Purchase> lockByIds(@Param("storeId") Long storeId, @Param("ids") Collection<Long> ids);
+
+    @Query("""
+            select p from Purchase p
+            where p.storeId = :storeId and p.status = :status
+              and (:branchIds is null or p.branchId in :branchIds)
+            order by p.supplierId, p.purchaseDate, p.id
+            """)
+    List<Purchase> findForSettlement(@Param("storeId") Long storeId,
+                                     @Param("branchIds") Collection<Long> branchIds,
+                                     @Param("status") PurchaseStatus status);
+
+    @Query("""
+            select p from Purchase p
+            where p.storeId = :storeId and p.supplierId = :supplierId and p.status = :status
+              and (:branchIds is null or p.branchId in :branchIds)
+            order by p.purchaseDate, p.id
+            """)
+    List<Purchase> findSupplierBills(@Param("storeId") Long storeId,
+                                     @Param("supplierId") Long supplierId,
+                                     @Param("branchIds") Collection<Long> branchIds,
+                                     @Param("status") PurchaseStatus status);
 }

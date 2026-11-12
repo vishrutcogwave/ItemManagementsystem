@@ -283,6 +283,106 @@ class ItemImportIntegrationTest {
         assertEquals(1, categoriesSearch(session, categoryName).get("content").size());
     }
 
+    // ---------- automatic unit creation ----------
+
+    @Test
+    void importCreatesMissingUnitsOnceAndReusesExistingUnits() {
+        Session session = registerStore();
+        String suffix = "U" + SEQ.incrementAndGet();
+        String category = "AutoUnits" + suffix;
+        String newUnit = "YARD";
+        long pieces = createUnit(session, "PCS", "Pieces");
+
+        // LITER is provisioned by the store, PCS exists, SET and YARD are new.
+        byte[] file = workbook(List.of(
+                new Object[]{"ENG" + suffix, "Engine Oil " + suffix, category, "LITER", "60", EXEMPT, "1", "1", null},
+                new Object[]{"BAT" + suffix, "Car Battery " + suffix, category, "pcs", "90", EXEMPT, "1", "1", null},
+                new Object[]{"PAD" + suffix, "Brake Pad " + suffix, category, " set ", "70", EXEMPT, "1", "1", null},
+                new Object[]{"SAR" + suffix, "Saree " + suffix, category, "PCS", "100", EXEMPT, "1", "1", null},
+                new Object[]{"FAB" + suffix, "New Fabric " + suffix, category, "Yard", "50", EXEMPT, "1", "1", null},
+                new Object[]{"FAB2" + suffix, "Second Fabric " + suffix, category, "  yard  ", "55", EXEMPT, "1", "1", null}));
+
+        JsonNode preview = preview(session, session.branchId(), file, HttpStatus.OK);
+        assertSummary(preview.get("summary"), "newItems", 6);
+        assertSummary(preview.get("summary"), "newUnits", 2);
+        assertSummary(preview.get("summary"), "reusedUnits", 2);
+        assertEquals(0, unitsSearch(session, newUnit).get("content").size(),
+                "preview must not create units");
+        assertEquals(0, unitsSearch(session, "SET").get("content").size(),
+                "preview must not create units");
+
+        JsonNode result = confirm(session, preview.get("batchId").asLong(), HttpStatus.OK);
+        assertEquals("COMPLETED", result.get("status").asText());
+        assertSummary(result.get("summary"), "newUnits", 2);
+        assertSummary(result.get("summary"), "reusedUnits", 2);
+        assertEquals("LITER", result.at("/rows/0/unit").asText());
+        assertEquals("PCS", result.at("/rows/1/unit").asText());
+        assertEquals("SET", result.at("/rows/2/unit").asText());
+        assertEquals("PCS", result.at("/rows/3/unit").asText());
+        assertEquals(newUnit, result.at("/rows/4/unit").asText());
+        assertEquals(newUnit, result.at("/rows/5/unit").asText(),
+                "the same new unit in several rows must be created once");
+
+        JsonNode created = unitsSearch(session, newUnit);
+        assertEquals(1, created.get("content").size(), "one unit per distinct new code");
+        assertEquals(newUnit, created.at("/content/0/unitCode").asText());
+        assertEquals(newUnit, created.at("/content/0/unitName").asText());
+        assertEquals(2, created.at("/content/0/itemCount").asInt());
+        JsonNode setUnit = unitsSearch(session, "SET");
+        assertEquals(1, setUnit.get("content").size());
+        JsonNode pcs = unitsSearch(session, "PCS");
+        assertEquals(1, pcs.get("content").size(), "an existing unit must be reused, not duplicated");
+        assertEquals(pieces, pcs.at("/content/0/id").asLong());
+
+        assertEquals("PCS", itemsSearch(session, "BAT" + suffix).at("/content/0/baseUnit").asText());
+        assertEquals(newUnit, itemsSearch(session, "FAB" + suffix).at("/content/0/baseUnit").asText());
+        assertEquals("SET", itemsSearch(session, "PAD" + suffix).at("/content/0/baseUnit").asText());
+
+        // A later file reuses the auto-created unit instead of creating it again.
+        byte[] reuseFile = workbook(List.<Object[]>of(new Object[]{
+                "GLV" + suffix, "Gloves " + suffix, category, " yard ", "20", EXEMPT, "1", "1", null}));
+        JsonNode reusePreview = preview(session, session.branchId(), reuseFile, HttpStatus.OK);
+        assertSummary(reusePreview.get("summary"), "newUnits", 0);
+        assertSummary(reusePreview.get("summary"), "reusedUnits", 1);
+        JsonNode reuseResult = confirm(session, reusePreview.get("batchId").asLong(), HttpStatus.OK);
+        assertEquals(newUnit, reuseResult.at("/rows/0/unit").asText());
+        assertEquals(1, unitsSearch(session, newUnit).get("content").size());
+    }
+
+    @Test
+    void failedImportRollsBackAutomaticallyCreatedUnits() {
+        Session session = registerStore();
+        String suffix = "Z" + SEQ.incrementAndGet();
+        String category = "RollbackUnits" + suffix;
+        String unit = "ZINC" + suffix;
+        byte[] file = workbook(List.of(
+                new Object[]{"SAFE" + suffix, "Unit Safe " + suffix, category, unit,
+                        "10", EXEMPT, "1", "1", null},
+                new Object[]{null, "Trigger Failure Item", category,
+                        "PIECE", "10", EXEMPT, "1", "1", null}));
+
+        JsonNode preview = preview(session, session.branchId(), file, HttpStatus.OK);
+        assertSummary(preview.get("summary"), "newUnits", 1);
+
+        createFailureTrigger();
+        try {
+            JsonNode failed = call(HttpMethod.POST, "/api/item-imports/"
+                            + preview.get("batchId").asLong() + "/confirm", null,
+                    session.token(), HttpStatus.BAD_REQUEST);
+            assertTrue(failed.get("message").asText().contains("rolled back"));
+        } finally {
+            dropFailureTrigger();
+        }
+
+        assertEquals(0, unitsSearch(session, unit).get("content").size(),
+                "units created by a rolled-back import must not remain");
+        assertEquals(0, itemsSearch(session, "Unit Safe " + suffix).get("content").size());
+        JsonNode detail = call(HttpMethod.GET, "/api/item-imports/" + preview.get("batchId").asLong(),
+                null, session.token(), HttpStatus.OK);
+        assertEquals("FAILED", detail.get("status").asText());
+        assertSummary(detail.get("summary"), "newUnits", 0);
+    }
+
     // ---------- duplicate protection ----------
 
     @Test
@@ -369,7 +469,7 @@ class ItemImportIntegrationTest {
         String category = "Invalid" + suffix;
 
         byte[] file = workbook(List.of(
-                new Object[]{null, "BadUnit" + suffix, category, "STONE", "10", "GST 5%", "1", "1", null},
+                new Object[]{null, "BadUnit" + suffix, category, "ST ONE", "10", "GST 5%", "1", "1", null},
                 new Object[]{null, "BadTax" + suffix, category, "PIECE", "10", "No Such Tax", "1", "1", null},
                 new Object[]{null, null, category, "PIECE", "10", "GST 5%", "1", "1", null},
                 new Object[]{null, "NegativeStock" + suffix, category, "PIECE", "10", "GST 5%", "-5", "1", null},
@@ -386,7 +486,7 @@ class ItemImportIntegrationTest {
             assertEquals("INVALID", row.get("validationStatus").asText());
             assertTrue(row.get("errorMessage").asText().length() > 0);
         }
-        assertTrue(preview.at("/rows/0/errorMessage").asText().contains("Invalid unit"));
+        assertTrue(preview.at("/rows/0/errorMessage").asText().contains("cannot be created automatically"));
         assertTrue(preview.at("/rows/1/errorMessage").asText().contains("not available"));
         assertTrue(preview.at("/rows/2/errorMessage").asText().contains("Item name is required"));
         assertTrue(preview.at("/rows/3/errorMessage").asText().contains("cannot be negative"));
@@ -394,6 +494,8 @@ class ItemImportIntegrationTest {
         assertTrue(preview.at("/rows/5/errorMessage").asText().contains("must be a number"));
         assertTrue(preview.at("/rows/6/errorMessage").asText().contains("Unit is required"));
         assertTrue(preview.at("/rows/7/errorMessage").asText().contains("Category name is required"));
+        assertSummary(preview.get("summary"), "newUnits", 0);
+        assertSummary(preview.get("summary"), "reusedUnits", 0);
 
         JsonNode rejected = call(HttpMethod.POST, "/api/item-imports/"
                         + preview.get("batchId").asLong() + "/confirm", null,
@@ -690,6 +792,17 @@ class ItemImportIntegrationTest {
             }
         }
         throw new IllegalStateException("Exempt tax was not provisioned for the store");
+    }
+
+    private long createUnit(Session session, String code, String name) {
+        return call(HttpMethod.POST, "/api/units",
+                map("unitCode", code, "unitName", name, "status", "ACTIVE"),
+                session.token(), HttpStatus.OK).get("id").asLong();
+    }
+
+    private JsonNode unitsSearch(Session session, String search) {
+        return call(HttpMethod.GET, "/api/units?size=50&search=" + encode(search),
+                null, session.token(), HttpStatus.OK);
     }
 
     private long createSupplier(Session session, String suffix) {

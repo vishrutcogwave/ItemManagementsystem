@@ -13,7 +13,10 @@ import java.util.List;
 
 /**
  * Tax is never accepted from the client: it is resolved from each item's tax
- * master and the supplier/branch place of supply on the server.
+ * master and the supplier/branch place of supply on the server. The payable is
+ * the amount the user actually pays; it is stored as the purchase total and is
+ * never recalculated from tax. Item rates are optional: the purchase is settled
+ * on one supplier-agreed payable amount, so rate-less lines are stored at zero.
  */
 public record PurchaseRequest(
         @NotNull(message = "Branch is required") Long branchId,
@@ -21,6 +24,7 @@ public record PurchaseRequest(
         @Size(max = 80, message = "Invoice number is too long") String invoiceNumber,
         @NotNull(message = "Purchase date is required") LocalDate purchaseDate,
         @DecimalMin(value = "0", message = "Discount cannot be negative") BigDecimal discount,
+        @DecimalMin(value = "0", message = "Payable amount cannot be negative") BigDecimal payableAmount,
         @DecimalMin(value = "0", message = "Paid amount cannot be negative") BigDecimal paidAmount,
         @Size(max = 500, message = "Notes are too long") String notes,
         PurchaseStatus status,
@@ -31,7 +35,6 @@ public record PurchaseRequest(
             @NotNull(message = "Quantity is required")
             @DecimalMin(value = "0.001", message = "Quantity must be greater than zero") BigDecimal quantity,
             String unit,
-            @NotNull(message = "Purchase rate is required")
             @DecimalMin(value = "0", message = "Purchase rate cannot be negative") BigDecimal purchaseRate,
             @DecimalMin(value = "0", message = "Discount cannot be negative") BigDecimal discount
     ) {

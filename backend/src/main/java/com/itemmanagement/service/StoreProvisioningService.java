@@ -6,6 +6,7 @@ import com.itemmanagement.entity.Permission;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.TaxMaster;
+import com.itemmanagement.entity.UnitMaster;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TaxType;
@@ -15,6 +16,7 @@ import com.itemmanagement.repository.PermissionRepository;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.TaxMasterRepository;
+import com.itemmanagement.repository.UnitMasterRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +47,7 @@ public class StoreProvisioningService {
             "DASHBOARD_VIEW", "STORE_VIEW", "STORE_MANAGE", "BRANCH_VIEW", "BRANCH_MANAGE",
             "USER_VIEW", "USER_MANAGE", "ROLE_VIEW", "ROLE_MANAGE",
             "CATEGORY_VIEW", "CATEGORY_MANAGE", "ITEM_VIEW", "ITEM_MANAGE",
-            "TAX_VIEW", "TAX_MANAGE", "SUPPLIER_VIEW", "SUPPLIER_MANAGE",
+            "TAX_VIEW", "TAX_MANAGE", "UNIT_VIEW", "UNIT_MANAGE", "SUPPLIER_VIEW", "SUPPLIER_MANAGE",
             "PURCHASE_VIEW", "PURCHASE_MANAGE",
             "INVENTORY_VIEW", "INVENTORY_ADJUST", "TRANSFER_VIEW", "TRANSFER_MANAGE", "TRANSFER_APPROVE",
             "SALES_VIEW", "SALES_MANAGE", "REPORT_VIEW", "PRINTER_VIEW", "PRINTER_MANAGE");
@@ -53,19 +55,19 @@ public class StoreProvisioningService {
     private static final List<String> ADMIN_PERMISSIONS = List.of(
             "DASHBOARD_VIEW", "STORE_VIEW", "BRANCH_VIEW", "USER_VIEW", "USER_MANAGE", "ROLE_VIEW",
             "CATEGORY_VIEW", "CATEGORY_MANAGE", "ITEM_VIEW", "ITEM_MANAGE",
-            "TAX_VIEW", "TAX_MANAGE", "SUPPLIER_VIEW", "SUPPLIER_MANAGE",
+            "TAX_VIEW", "TAX_MANAGE", "UNIT_VIEW", "UNIT_MANAGE", "SUPPLIER_VIEW", "SUPPLIER_MANAGE",
             "PURCHASE_VIEW", "PURCHASE_MANAGE",
             "INVENTORY_VIEW", "INVENTORY_ADJUST", "TRANSFER_VIEW", "TRANSFER_MANAGE", "TRANSFER_APPROVE",
             "SALES_VIEW", "SALES_MANAGE", "REPORT_VIEW", "PRINTER_VIEW", "PRINTER_MANAGE");
 
     private static final List<String> MANAGER_PERMISSIONS = List.of(
-            "DASHBOARD_VIEW", "CATEGORY_VIEW", "ITEM_VIEW", "TAX_VIEW", "SUPPLIER_VIEW",
+            "DASHBOARD_VIEW", "CATEGORY_VIEW", "ITEM_VIEW", "TAX_VIEW", "UNIT_VIEW", "SUPPLIER_VIEW",
             "PURCHASE_VIEW", "PURCHASE_MANAGE", "INVENTORY_VIEW", "INVENTORY_ADJUST",
             "TRANSFER_VIEW", "TRANSFER_MANAGE", "SALES_VIEW", "SALES_MANAGE", "REPORT_VIEW",
             "PRINTER_VIEW");
 
     private static final List<String> STAFF_PERMISSIONS = List.of(
-            "DASHBOARD_VIEW", "CATEGORY_VIEW", "ITEM_VIEW", "TAX_VIEW",
+            "DASHBOARD_VIEW", "CATEGORY_VIEW", "ITEM_VIEW", "TAX_VIEW", "UNIT_VIEW",
             "INVENTORY_VIEW", "SALES_VIEW", "SALES_MANAGE");
 
     private final StoreRepository storeRepository;
@@ -74,6 +76,7 @@ public class StoreProvisioningService {
     private final PermissionRepository permissionRepository;
     private final UserRepository userRepository;
     private final TaxMasterRepository taxMasterRepository;
+    private final UnitMasterRepository unitMasterRepository;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicy passwordPolicy;
 
@@ -114,6 +117,7 @@ public class StoreProvisioningService {
                 .build());
 
         seedDefaultTaxes(store.getId());
+        seedDefaultUnits(store.getId());
         Map<String, Role> roles = createDefaultRoles(store.getId());
 
         String username = request.username().trim();
@@ -206,6 +210,28 @@ public class StoreProvisioningService {
                 .sgstPercentage(percentage.subtract(half))
                 .igstPercentage(percentage)
                 .taxType(type)
+                .status(StoreStatus.ACTIVE)
+                .build());
+    }
+
+    private void seedDefaultUnits(Long storeId) {
+        createUnit(storeId, "LITER", "Litre", "Volume in litres");
+        createUnit(storeId, "ML", "Millilitre", "Volume in millilitres");
+        createUnit(storeId, "KG", "Kilogram", "Weight in kilograms");
+        createUnit(storeId, "GRAM", "Gram", "Weight in grams");
+        createUnit(storeId, "PIECE", "Piece", "Individual countable item");
+        createUnit(storeId, "DOZEN", "Dozen", "Count in dozens of pieces");
+        createUnit(storeId, "PACKET", "Packet", "Sealed packet or pouch");
+        createUnit(storeId, "BOX", "Box", "Carton or box");
+        createUnit(storeId, "BOTTLE", "Bottle", "Sealed bottle");
+    }
+
+    private void createUnit(Long storeId, String code, String name, String description) {
+        unitMasterRepository.save(UnitMaster.builder()
+                .storeId(storeId)
+                .unitCode(code)
+                .unitName(name)
+                .description(description)
                 .status(StoreStatus.ACTIVE)
                 .build());
     }

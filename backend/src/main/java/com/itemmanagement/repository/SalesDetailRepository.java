@@ -20,6 +20,8 @@ public interface SalesDetailRepository extends JpaRepository<SalesDetail, Long> 
 
     long countByStoreIdAndTaxId(Long storeId, Long taxId);
 
+    long countByStoreIdAndUnitIgnoreCase(Long storeId, String unit);
+
     @Query("""
             select sd from SalesDetail sd, Sale s
             where sd.salesId = s.id and sd.storeId = :storeId

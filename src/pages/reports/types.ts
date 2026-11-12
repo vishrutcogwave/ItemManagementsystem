@@ -5,5 +5,6 @@ export interface ReportFilters {
   branchLabel: string
   categoryId: string
   itemId: string
+  supplierId: string
   search: string
 }

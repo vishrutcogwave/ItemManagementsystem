@@ -9,6 +9,7 @@ import {
   Percent,
   Printer,
   ReceiptText,
+  Ruler,
   ScrollText,
   Settings,
   ShoppingCart,
@@ -18,6 +19,7 @@ import {
   Truck,
   TriangleAlert,
   UserCog,
+  Wallet,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -55,6 +57,7 @@ export const storeNav: NavGroup[] = [
       { to: '/items/imports', label: 'Import History', icon: FileSpreadsheet, permission: 'ITEM_VIEW' },
       { to: '/categories', label: 'Categories', icon: Tags, permission: 'CATEGORY_VIEW' },
       { to: '/taxes', label: 'Tax Master', icon: Percent, permission: 'TAX_VIEW' },
+      { to: '/units', label: 'Unit Master', icon: Ruler, permission: 'UNIT_VIEW' },
       { to: '/suppliers', label: 'Suppliers', icon: Truck, permission: 'SUPPLIER_VIEW' },
     ],
   },
@@ -62,6 +65,7 @@ export const storeNav: NavGroup[] = [
     label: 'Stock',
     items: [
       { to: '/purchases', label: 'Purchases', icon: ClipboardList, permission: 'PURCHASE_VIEW' },
+      { to: '/supplier-payments', label: 'Supplier Outstanding', icon: Wallet, permission: 'PURCHASE_VIEW' },
       { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'INVENTORY_VIEW' },
       { to: '/transfers', label: 'Stock Transfers', icon: ArrowLeftRight, permission: 'TRANSFER_VIEW' },
       { to: '/low-stock', label: 'Low Stock', icon: TriangleAlert, permission: 'INVENTORY_VIEW' },

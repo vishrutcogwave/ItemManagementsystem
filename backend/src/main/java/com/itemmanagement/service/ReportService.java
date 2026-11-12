@@ -47,9 +47,11 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -91,6 +93,7 @@ public class ReportService {
         List<PurchaseReportResponse.Row> rows = new ArrayList<>();
         BigDecimal totalQuantity = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
+        Set<Long> countedPurchases = new HashSet<>();
         List<PurchaseDetail> details = purchaseDetailRepository
                 .findByPurchaseIdIn(purchases.stream().map(Purchase::getId).toList());
         for (PurchaseDetail detail : details) {
@@ -111,7 +114,10 @@ public class ReportService {
                     item.getItemName(), detail.getQuantity(), detail.getUnit(),
                     detail.getPurchaseRate(), detail.getTotalAmount()));
             totalQuantity = totalQuantity.add(detail.getBaseQuantity());
-            totalAmount = totalAmount.add(detail.getTotalAmount());
+            // The purchase is settled on one bill amount, not on summed line rates.
+            if (countedPurchases.add(purchase.getId())) {
+                totalAmount = totalAmount.add(money(purchase.getGrandTotal()));
+            }
         }
         rows.sort(Comparator.comparing(PurchaseReportResponse.Row::purchaseDate).reversed()
                 .thenComparing(PurchaseReportResponse.Row::purchaseNumber));
@@ -485,7 +491,7 @@ public class ReportService {
                 quantity(currentStock.subtract(net)), quantity(movement.purchased),
                 quantity(movement.sold), quantity(movement.transferIn), quantity(movement.transferOut),
                 quantity(movement.adjustmentIn), quantity(movement.adjustmentOut),
-                quantity(currentStock), item.getBaseUnit().name());
+                quantity(currentStock), item.getBaseUnit());
     }
 
     private Scope scope(Long branchId) {

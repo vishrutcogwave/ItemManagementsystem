@@ -51,6 +51,12 @@ public class ItemImportBatch {
     private int newCategories;
 
     @Column(nullable = false)
+    private int newUnits;
+
+    @Column(nullable = false)
+    private int reusedUnits;
+
+    @Column(nullable = false)
     private int newItems;
 
     @Column(nullable = false)

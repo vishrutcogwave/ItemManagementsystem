@@ -423,6 +423,90 @@ class SystemInvariantIntegrationTest {
         call(HttpMethod.GET, "/api/taxes/" + unusedId, null, a.token(), HttpStatus.NOT_FOUND);
     }
 
+    // ---------- unit master ----------
+
+    @Test
+    void unitMasterDrivesItemUnitsAndIsStoreSpecific() {
+        Session a = registerStore();
+        Session b = registerStore();
+
+        JsonNode options = call(HttpMethod.GET, "/api/units/options", null, a.token(), HttpStatus.OK);
+        assertEquals(9, options.size());
+
+        JsonNode created = call(HttpMethod.POST, "/api/units",
+                map("unitCode", "roll", "unitName", "Roll", "description", "Material roll",
+                        "status", "ACTIVE"),
+                a.token(), HttpStatus.OK);
+        assertEquals("ROLL", created.get("unitCode").asText());
+        long unitId = created.get("id").asLong();
+
+        call(HttpMethod.GET, "/api/units/" + unitId, null, b.token(), HttpStatus.NOT_FOUND);
+        call(HttpMethod.POST, "/api/units",
+                map("unitCode", "ROLL", "unitName", "Another roll"),
+                a.token(), HttpStatus.CONFLICT);
+
+        long categoryId = createCategory(a, "Units");
+        JsonNode item = call(HttpMethod.POST, "/api/items",
+                map("itemCode", "ROLL" + SEQ.incrementAndGet(), "itemName", "Carry Bag Roll",
+                        "categoryId", categoryId, "taxId", exemptTaxId(a), "baseUnit", "roll",
+                        "rate", new BigDecimal("25"), "minStockLevel", BigDecimal.ONE,
+                        "status", "ACTIVE"),
+                a.token(), HttpStatus.OK);
+        assertEquals("ROLL", item.get("baseUnit").asText());
+
+        call(HttpMethod.POST, "/api/items",
+                map("itemCode", "BAD" + SEQ.incrementAndGet(), "itemName", "Unknown unit item",
+                        "categoryId", categoryId, "taxId", exemptTaxId(a), "baseUnit", "NOT_A_UNIT",
+                        "rate", new BigDecimal("25"), "minStockLevel", BigDecimal.ONE,
+                        "status", "ACTIVE"),
+                a.token(), HttpStatus.BAD_REQUEST);
+
+        call(HttpMethod.DELETE, "/api/units/" + unitId, null, a.token(), HttpStatus.BAD_REQUEST);
+        call(HttpMethod.PUT, "/api/units/" + unitId,
+                map("unitCode", "ROLLS", "unitName", "Roll"), a.token(), HttpStatus.CONFLICT);
+
+        call(HttpMethod.PUT, "/api/units/" + unitId + "/status", map("status", "INACTIVE"),
+                a.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/items",
+                map("itemCode", "OFF" + SEQ.incrementAndGet(), "itemName", "Inactive unit item",
+                        "categoryId", categoryId, "taxId", exemptTaxId(a), "baseUnit", "ROLL",
+                        "rate", new BigDecimal("25"), "minStockLevel", BigDecimal.ONE,
+                        "status", "ACTIVE"),
+                a.token(), HttpStatus.BAD_REQUEST);
+
+        JsonNode unused = call(HttpMethod.POST, "/api/units",
+                map("unitCode", "SET", "unitName", "Set"), a.token(), HttpStatus.OK);
+        call(HttpMethod.DELETE, "/api/units/" + unused.get("id").asLong(), null,
+                a.token(), HttpStatus.OK);
+    }
+
+    @Test
+    void purchasePayableIsStoredExactlyAsEntered() {
+        Session session = registerStore();
+        long gst5 = taxIdByRate(session, "5");
+        long categoryId = createCategory(session, "Payable");
+        ItemRef item = createItem(session, categoryId, "PAY", gst5);
+        long supplier = createSupplier(session, "Pay");
+
+        JsonNode purchase = call(HttpMethod.POST, "/api/purchases",
+                map("branchId", session.branchId(), "supplierId", supplier,
+                        "invoiceNumber", "PAY-" + SEQ.incrementAndGet(),
+                        "purchaseDate", LocalDate.now().toString(),
+                        "payableAmount", new BigDecimal("123.45"),
+                        "paidAmount", new BigDecimal("23.45"),
+                        "status", "COMPLETED",
+                        "items", List.of(map("itemId", item.id(), "quantity", new BigDecimal("10"),
+                                "unit", "PIECE", "purchaseRate", new BigDecimal("10"),
+                                "discount", BigDecimal.ZERO))),
+                session.token(), HttpStatus.OK);
+        assertMoney(purchase.get("taxableAmount"), "100.00");
+        assertMoney(purchase.get("tax"), "5.00");
+        assertMoney(purchase.get("grandTotal"), "123.45");
+        assertMoney(purchase.get("paidAmount"), "23.45");
+        assertMoney(purchase.get("balanceAmount"), "100.00");
+        assertMoney(purchase.at("/items/0/totalAmount"), "100.00");
+    }
+
     @Test
     void gstIsCalculatedOnServerAndSnapshotsStayImmutable() {
         Session session = registerStore();
@@ -437,7 +521,7 @@ class SystemInvariantIntegrationTest {
         assertMoney(purchase.get("sgstAmount"), "2.50");
         assertMoney(purchase.get("igstAmount"), "0.00");
         assertMoney(purchase.get("tax"), "5.00");
-        assertMoney(purchase.get("grandTotal"), "105.00");
+        assertMoney(purchase.get("grandTotal"), "100.00");
         assertEquals("GST 5%", purchase.at("/items/0/taxName").asText());
         assertMoney(purchase.at("/items/0/gstPercentage"), "5.00");
 
@@ -456,7 +540,7 @@ class SystemInvariantIntegrationTest {
         assertMoney(interPurchase.get("sgstAmount"), "0.00");
         assertMoney(interPurchase.get("igstAmount"), "5.00");
         assertMoney(interPurchase.get("tax"), "5.00");
-        assertMoney(interPurchase.get("grandTotal"), "105.00");
+        assertMoney(interPurchase.get("grandTotal"), "100.00");
 
         call(HttpMethod.PUT, "/api/taxes/" + gst5,
                 map("taxName", "GST 5%", "description", "Now 18%",

@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface StockAdjustmentRepository extends JpaRepository<StockAdjustment, Long> {
 
     Page<StockAdjustment> findByStoreIdOrderByCreatedAtDesc(Long storeId, Pageable pageable);
+
+    long countByStoreIdAndUnitIgnoreCase(Long storeId, String unit);
 }

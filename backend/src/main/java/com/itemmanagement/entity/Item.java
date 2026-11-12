@@ -2,7 +2,6 @@ package com.itemmanagement.entity;
 
 import com.itemmanagement.entity.enums.BarcodeFormat;
 import com.itemmanagement.entity.enums.StoreStatus;
-import com.itemmanagement.entity.enums.Unit;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -47,9 +46,8 @@ public class Item {
     @Column(length = 255)
     private String description;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private Unit baseUnit;
+    private String baseUnit;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal rate;

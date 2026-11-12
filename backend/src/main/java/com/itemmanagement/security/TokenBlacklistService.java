@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -36,6 +37,15 @@ public class TokenBlacklistService {
         } catch (DataIntegrityViolationException duplicate) {
             // Revoking the same token twice is a no-op.
         }
+    }
+
+    /**
+     * Revokes a token in a transaction of its own so the entry survives an
+     * outer transaction that rolls back, such as a rejected login attempt.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void revokeInNewTransaction(String tokenId, Instant expiresAt) {
+        revoke(tokenId, expiresAt);
     }
 
     @Transactional(readOnly = true)
