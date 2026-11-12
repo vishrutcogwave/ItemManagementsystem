@@ -10,7 +10,6 @@ import com.itemmanagement.entity.StockTransferDetail;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
 import com.itemmanagement.entity.enums.TransferStatus;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchInventoryRepository;
 import com.itemmanagement.repository.BranchRepository;
@@ -103,7 +102,7 @@ public class TransferService {
             if (item.getStatus() != StoreStatus.ACTIVE) {
                 throw ApiException.badRequest(item.getItemName() + " is inactive");
             }
-            Unit unit = UnitConverter.parse(line.unit());
+            String unit = UnitConverter.parse(line.unit());
             if (unit == null) {
                 unit = item.getBaseUnit();
             }
@@ -111,7 +110,7 @@ public class TransferService {
                     .storeId(storeId)
                     .itemId(item.getId())
                     .quantity(line.quantity().setScale(3, RoundingMode.HALF_UP))
-                    .unit(unit.name())
+                    .unit(unit)
                     .baseQuantity(UnitConverter.toBase(line.quantity(), unit, item.getBaseUnit()))
                     .build());
         }

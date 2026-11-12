@@ -157,7 +157,7 @@ public class DashboardService {
                     Item item = itemsById.get(entry.getKey());
                     return new DashboardResponse.TopItem(entry.getKey(),
                             item == null ? "Item" : item.getItemName(),
-                            item == null ? "" : item.getBaseUnit().name(),
+                            item == null ? "" : item.getBaseUnit(),
                             entry.getValue()[0], money(entry.getValue()[1]));
                 })
                 .toList();

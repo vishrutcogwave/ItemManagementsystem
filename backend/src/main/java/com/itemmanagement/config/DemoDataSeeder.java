@@ -11,7 +11,6 @@ import com.itemmanagement.entity.Supplier;
 import com.itemmanagement.entity.TaxMaster;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.repository.BranchInventoryRepository;
 import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.CategoryRepository;
@@ -107,23 +106,23 @@ public class DemoDataSeeder {
                 .storeId(storeId).categoryName("Cleaning Products")
                 .description("Household cleaning supplies").status(StoreStatus.ACTIVE).build()));
 
-        createItem(storeId, categories, taxes, "Milk Products", "MILK-1L", "Milk", Unit.LITER,
+        createItem(storeId, categories, taxes, "Milk Products", "MILK-1L", "Milk", "LITER",
                 "60.00", "8", "GST 0% (Exempt)");
-        createItem(storeId, categories, taxes, "Milk Products", "CURD-500", "Curd 500g", Unit.PIECE,
+        createItem(storeId, categories, taxes, "Milk Products", "CURD-500", "Curd 500g", "PIECE",
                 "40.00", "5", "GST 5%");
-        createItem(storeId, categories, taxes, "Milk Products", "PANEER-250", "Paneer 250g", Unit.PIECE,
+        createItem(storeId, categories, taxes, "Milk Products", "PANEER-250", "Paneer 250g", "PIECE",
                 "100.00", "3", "GST 5%");
-        createItem(storeId, categories, taxes, "Beverages", "WATER-1L", "Water Bottle 1L", Unit.BOTTLE,
+        createItem(storeId, categories, taxes, "Beverages", "WATER-1L", "Water Bottle 1L", "BOTTLE",
                 "15.00", "12", "GST 18%");
-        createItem(storeId, categories, taxes, "Beverages", "JUICE-1L", "Mango Juice 1L", Unit.BOTTLE,
+        createItem(storeId, categories, taxes, "Beverages", "JUICE-1L", "Mango Juice 1L", "BOTTLE",
                 "90.00", "6", "GST 12%");
-        createItem(storeId, categories, taxes, "Grocery", "SUGAR-1KG", "Sugar", Unit.KG,
+        createItem(storeId, categories, taxes, "Grocery", "SUGAR-1KG", "Sugar", "KG",
                 "50.00", "10", "GST 5%");
-        createItem(storeId, categories, taxes, "Grocery", "RICE-5KG", "Basmati Rice 5kg", Unit.PACKET,
+        createItem(storeId, categories, taxes, "Grocery", "RICE-5KG", "Basmati Rice 5kg", "PACKET",
                 "450.00", "4", "GST 5%");
-        createItem(storeId, categories, taxes, "Snacks", "BISCUIT-100", "Marie Biscuit 100g", Unit.PACKET,
+        createItem(storeId, categories, taxes, "Snacks", "BISCUIT-100", "Marie Biscuit 100g", "PACKET",
                 "25.00", "10", "GST 18%");
-        createItem(storeId, categories, taxes, "Cleaning Products", "DETERGENT-1KG", "Detergent Powder 1kg", Unit.KG,
+        createItem(storeId, categories, taxes, "Cleaning Products", "DETERGENT-1KG", "Detergent Powder 1kg", "KG",
                 "120.00", "5", "GST 18%");
 
         supplierRepository.save(Supplier.builder()
@@ -198,7 +197,7 @@ public class DemoDataSeeder {
     }
 
     private void createItem(Long storeId, Map<String, Category> categories, Map<String, TaxMaster> taxes,
-                            String categoryName, String code, String name, Unit unit,
+                            String categoryName, String code, String name, String unit,
                             String rate, String minStock, String taxName) {
         itemRepository.save(Item.builder()
                 .storeId(storeId)

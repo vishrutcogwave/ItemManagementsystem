@@ -10,6 +10,7 @@ import {
 } from '../components/ui'
 import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
+import { useUnits } from '../hooks/useUnits'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { money, qty, today } from '../lib/format'
 import { autoPrintSale, printSaleReceiptForDevice } from '../services/printerService'
@@ -33,7 +34,7 @@ const newLine = (): LineForm => ({
   key: ++lineKey,
   itemId: '',
   quantity: '1',
-  unit: 'PIECE',
+  unit: '',
   sellingRate: '',
   discount: '0',
 })
@@ -45,6 +46,8 @@ const toNumber = (value: string) => {
 
 export function SalesEntryPage() {
   const { branches, selectedBranchId, store } = useAuthStore()
+  const { units } = useUnits()
+  const activeUnits = units.filter((unit) => unit.status === 'ACTIVE')
   const storeInfo = {
     name: store?.storeName ?? 'Store',
     gstNumber: store?.gstNumber,
@@ -89,7 +92,7 @@ export function SalesEntryPage() {
   const chooseItem = (key: number, itemIdRaw: string) => {
     const itemId = itemIdRaw ? Number(itemIdRaw) : ''
     const item = items?.find((entry) => entry.id === itemId)
-    updateLine(key, { itemId, unit: item?.baseUnit ?? 'PIECE', sellingRate: '' })
+    updateLine(key, { itemId, unit: item?.baseUnit ?? '', sellingRate: '' })
   }
 
   const removeLine = (key: number) => {
@@ -331,7 +334,7 @@ export function SalesEntryPage() {
                             value={line.unit}
                             onChange={(event) => updateLine(line.key, { unit: event.target.value as Unit })}
                           >
-                            {unitOptionsFor(item?.baseUnit).map((option) => (
+                            {unitOptionsFor(activeUnits, item?.baseUnit).map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>

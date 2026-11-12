@@ -8,7 +8,12 @@ import com.itemmanagement.dto.report.PurchaseReportResponse;
 import com.itemmanagement.dto.report.SalesReportResponse;
 import com.itemmanagement.dto.report.StockReportResponse;
 import com.itemmanagement.dto.report.StoreReportResponse;
+import com.itemmanagement.dto.report.SupplierBillReportResponse;
+import com.itemmanagement.dto.report.SupplierLedgerReportResponse;
+import com.itemmanagement.dto.report.SupplierOutstandingReportResponse;
+import com.itemmanagement.dto.report.SupplierPaymentReportResponse;
 import com.itemmanagement.service.ReportService;
+import com.itemmanagement.service.SupplierPaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +31,7 @@ import java.time.LocalDate;
 public class ReportController {
 
     private final ReportService reportService;
+    private final SupplierPaymentService supplierPaymentService;
 
     @GetMapping("/purchases")
     @PreAuthorize("hasAuthority('REPORT_VIEW')")
@@ -110,5 +116,46 @@ public class ReportController {
             @RequestParam(required = false) Long itemId,
             @RequestParam(required = false) String search) {
         return reportService.profitReport(from, to, branchId, categoryId, itemId, search);
+    }
+
+    @GetMapping("/supplier-outstanding")
+    @PreAuthorize("hasAuthority('REPORT_VIEW')")
+    public SupplierOutstandingReportResponse supplierOutstanding(
+            @RequestParam(required = false) Long supplierId,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String search) {
+        return supplierPaymentService.supplierOutstandingReport(supplierId, search, branchId);
+    }
+
+    @GetMapping("/supplier-bills")
+    @PreAuthorize("hasAuthority('REPORT_VIEW')")
+    public SupplierBillReportResponse supplierBills(
+            @RequestParam(required = false) Long supplierId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String settlement,
+            @RequestParam(required = false) String search) {
+        return supplierPaymentService.supplierBillsReport(supplierId, from, to, branchId, settlement, search);
+    }
+
+    @GetMapping("/supplier-payments")
+    @PreAuthorize("hasAuthority('REPORT_VIEW')")
+    public SupplierPaymentReportResponse supplierPayments(
+            @RequestParam(required = false) Long supplierId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String search) {
+        return supplierPaymentService.supplierPaymentsReport(from, to, supplierId, branchId, search);
+    }
+
+    @GetMapping("/supplier-ledger")
+    @PreAuthorize("hasAuthority('REPORT_VIEW')")
+    public SupplierLedgerReportResponse supplierLedger(
+            @RequestParam Long supplierId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return supplierPaymentService.supplierLedger(supplierId, from, to);
     }
 }

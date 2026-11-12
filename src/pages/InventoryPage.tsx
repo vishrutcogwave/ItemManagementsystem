@@ -21,6 +21,7 @@ import {
 } from '../components/ui'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
+import { useUnits } from '../hooks/useUnits'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { formatDateTime, money, qty, titleCase } from '../lib/format'
 import { unitOptionsFor } from '../lib/units'
@@ -53,6 +54,8 @@ interface PricingState {
 export function InventoryPage() {
   const [params, setParams] = useSearchParams()
   const { branches, selectedBranchId, hasPermission } = useAuthStore()
+  const { units } = useUnits()
+  const activeUnits = units.filter((unit) => unit.status === 'ACTIVE')
   const canAdjust = hasPermission('INVENTORY_ADJUST')
   const branchId = selectedBranchId
 
@@ -123,7 +126,7 @@ export function InventoryPage() {
           itemId: '',
           type: 'IN',
           quantity: '',
-          unit: 'PIECE',
+          unit: '',
           reason: '',
         }
       : null,
@@ -378,7 +381,7 @@ export function InventoryPage() {
                   itemId: '',
                   type: 'IN',
                   quantity: '',
-                  unit: 'PIECE',
+                  unit: '',
                   reason: '',
                 })
                 setAdjustErrors({})
@@ -563,7 +566,7 @@ export function InventoryPage() {
                   onChange={(event) => {
                     const itemId = event.target.value ? Number(event.target.value) : ''
                     const item = items?.find((entry) => entry.id === itemId)
-                    setAdjust({ ...adjust, itemId, unit: item?.baseUnit ?? 'PIECE' })
+                    setAdjust({ ...adjust, itemId, unit: item?.baseUnit ?? '' })
                   }}
                 >
                   <option value="">Select item</option>
@@ -612,7 +615,7 @@ export function InventoryPage() {
               </Field>
               <Field label="Unit">
                 <Select value={adjust.unit} onChange={(event) => setAdjust({ ...adjust, unit: event.target.value as Unit })}>
-                  {unitOptionsFor(adjustItem?.baseUnit).map((option) => (
+                  {unitOptionsFor(activeUnits, adjustItem?.baseUnit).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

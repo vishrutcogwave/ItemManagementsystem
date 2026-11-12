@@ -20,6 +20,8 @@ public interface PurchaseDetailRepository extends JpaRepository<PurchaseDetail, 
 
     long countByStoreIdAndTaxId(Long storeId, Long taxId);
 
+    long countByStoreIdAndUnitIgnoreCase(Long storeId, String unit);
+
     @Query("""
             select pd from PurchaseDetail pd, Purchase p
             where pd.purchaseId = p.id and pd.storeId = :storeId

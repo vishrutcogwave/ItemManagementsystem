@@ -2,6 +2,7 @@ package com.itemmanagement.service;
 
 import com.itemmanagement.entity.Category;
 import com.itemmanagement.entity.TaxMaster;
+import com.itemmanagement.entity.UnitMaster;
 import com.itemmanagement.exception.ApiException;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddressList;
@@ -102,7 +103,9 @@ public class ItemImportExcelService {
         }
     }
 
-    public byte[] template(List<Category> categories, List<TaxMaster> taxes, String branchName) {
+    public byte[] template(List<Category> categories, List<TaxMaster> taxes,
+                           List<UnitMaster> unitMaster, String branchName) {
+        List<String> unitCodes = unitMaster.stream().map(UnitMaster::getUnitCode).toList();
         try (XSSFWorkbook workbook = new XSSFWorkbook();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet items = workbook.createSheet("Items");
@@ -129,17 +132,27 @@ public class ItemImportExcelService {
             items.createFreezePane(0, 1);
 
             DataValidationHelper helper = items.getDataValidationHelper();
-            DataValidationConstraint units = helper.createExplicitListConstraint(new String[]{
-                    "LITER", "ML", "KG", "GRAM", "PIECE", "PACKET", "BOX", "BOTTLE", "DOZEN"});
-            DataValidation unitValidation = helper.createValidation(units,
-                    new CellRangeAddressList(1, MAX_ROWS, 3, 3));
-            unitValidation.setSuppressDropDownArrow(true);
-            unitValidation.setShowErrorBox(true);
-            unitValidation.createErrorBox("Invalid unit",
-                    "Use one of: LITER, ML, KG, GRAM, PIECE, PACKET, BOX, BOTTLE, DOZEN");
-            items.addValidationData(unitValidation);
+            if (!unitCodes.isEmpty()) {
+                Sheet unitSheet = workbook.createSheet("Units");
+                for (int i = 0; i < unitCodes.size(); i++) {
+                    unitSheet.createRow(i).createCell(0).setCellValue(unitCodes.get(i));
+                }
+                Name unitRange = workbook.createName();
+                unitRange.setNameName("UnitCodes");
+                unitRange.setRefersToFormula("Units!$A$1:$A$" + unitCodes.size());
+                DataValidationConstraint units = helper.createFormulaListConstraint("UnitCodes");
+                DataValidation unitValidation = helper.createValidation(units,
+                        new CellRangeAddressList(1, MAX_ROWS, 3, 3));
+                unitValidation.setSuppressDropDownArrow(true);
+                unitValidation.setShowErrorBox(true);
+                unitValidation.setErrorStyle(DataValidation.ErrorStyle.WARNING);
+                unitValidation.createErrorBox("Unit not in Unit Master",
+                        "Continue and this unit will be created automatically when the file is imported. "
+                                + "Unit codes allow 1-20 letters, numbers, dot, underscore or hyphen.");
+                items.addValidationData(unitValidation);
+            }
 
-            writeInstructions(workbook, categories, taxes, branchName);
+            writeInstructions(workbook, categories, taxes, unitCodes, branchName);
 
             workbook.write(out);
             return out.toByteArray();
@@ -149,7 +162,7 @@ public class ItemImportExcelService {
     }
 
     private void writeInstructions(Workbook workbook, List<Category> categories,
-                                   List<TaxMaster> taxes, String branchName) {
+                                   List<TaxMaster> taxes, List<String> unitCodes, String branchName) {
         Sheet sheet = workbook.createSheet("Instructions");
         sheet.setColumnWidth(0, 110 * 256);
 
@@ -180,8 +193,11 @@ public class ItemImportExcelService {
         rowIndex = instruction(sheet, rowIndex, "Item Code",
                 "Leave blank to let the system generate a code. When supplied, an existing code "
                         + "is treated as an existing item and its master fields are not overwritten.", labelStyle);
-        rowIndex = instruction(sheet, rowIndex, "Allowed units",
-                "LITER, ML, KG, GRAM, PIECE, PACKET, BOX, BOTTLE, DOZEN", labelStyle);
+        rowIndex = instruction(sheet, rowIndex, "Units",
+                (unitCodes.isEmpty() ? "No units yet. Any code typed in the Unit column is created automatically."
+                        : "Existing: " + String.join(", ", unitCodes)
+                        + ". Any other code is created automatically.")
+                        + " Unit codes allow 1-20 letters, numbers, dot, underscore or hyphen.", labelStyle);
         rowIndex = instruction(sheet, rowIndex, "Existing categories",
                 categories.isEmpty() ? "(none yet)" : categories.stream()
                         .map(Category::getCategoryName).collect(Collectors.joining(", ")), labelStyle);

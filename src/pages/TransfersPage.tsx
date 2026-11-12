@@ -22,6 +22,7 @@ import {
 } from '../components/ui'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
+import { useUnits } from '../hooks/useUnits'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { formatDate, qty, today, titleCase } from '../lib/format'
 import { unitOptionsFor } from '../lib/units'
@@ -45,7 +46,7 @@ interface TransferForm {
 }
 
 let lineKey = 0
-const newLine = (): LineForm => ({ key: ++lineKey, itemId: '', quantity: '1', unit: 'PIECE' })
+const newLine = (): LineForm => ({ key: ++lineKey, itemId: '', quantity: '1', unit: '' })
 
 type ActionType = 'approve' | 'reject' | 'dispatch' | 'receive' | 'cancel'
 
@@ -87,6 +88,8 @@ const actionMeta: Record<ActionType, { label: string; success: string; title: st
 export function TransfersPage() {
   const [params, setParams] = useSearchParams()
   const { branches, selectedBranchId, hasPermission } = useAuthStore()
+  const { units } = useUnits()
+  const activeUnits = units.filter((unit) => unit.status === 'ACTIVE')
   const canManage = hasPermission('TRANSFER_MANAGE')
   const canApprove = hasPermission('TRANSFER_APPROVE')
   const branchId = selectedBranchId
@@ -186,7 +189,7 @@ export function TransfersPage() {
   const chooseItem = (key: number, itemIdRaw: string) => {
     const itemId = itemIdRaw ? Number(itemIdRaw) : ''
     const item = items?.find((entry) => entry.id === itemId)
-    updateLine(key, { itemId, unit: item?.baseUnit ?? 'PIECE' })
+    updateLine(key, { itemId, unit: item?.baseUnit ?? '' })
   }
 
   const save = async () => {
@@ -557,7 +560,7 @@ export function TransfersPage() {
                     <div className="col-span-4 sm:col-span-2">
                       <Field label="Unit">
                         <Select value={line.unit} onChange={(event) => updateLine(line.key, { unit: event.target.value as Unit })}>
-                          {unitOptionsFor(item?.baseUnit).map((option) => (
+                          {unitOptionsFor(activeUnits, item?.baseUnit).map((option) => (
                             <option key={option.value} value={option.value}>
                               {option.label}
                             </option>

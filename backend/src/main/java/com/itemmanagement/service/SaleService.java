@@ -13,7 +13,6 @@ import com.itemmanagement.entity.enums.PaymentMethod;
 import com.itemmanagement.entity.enums.SaleStatus;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.ItemRepository;
@@ -105,7 +104,7 @@ public class SaleService {
             if (item.getStatus() != StoreStatus.ACTIVE) {
                 throw ApiException.badRequest(item.getItemName() + " is inactive");
             }
-            Unit unit = UnitConverter.parse(line.unit());
+            String unit = UnitConverter.parse(line.unit());
             if (unit == null) {
                 unit = item.getBaseUnit();
             }
@@ -156,7 +155,7 @@ public class SaleService {
                     .storeId(storeId)
                     .itemId(raw.item().getId())
                     .quantity(raw.quantity())
-                    .unit(raw.unit().name())
+                    .unit(raw.unit())
                     .baseQuantity(raw.baseQuantity())
                     .sellingRate(raw.rate())
                     .costRate(BigDecimal.ZERO)
@@ -326,7 +325,7 @@ public class SaleService {
         return value == null || value.isBlank() ? "" : value.trim();
     }
 
-    private record RawLine(Item item, Unit unit, BigDecimal quantity, BigDecimal rate,
+    private record RawLine(Item item, String unit, BigDecimal quantity, BigDecimal rate,
                            BigDecimal baseQuantity, BigDecimal gross, BigDecimal discount) {
     }
 }

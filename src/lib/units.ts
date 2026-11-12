@@ -1,10 +1,8 @@
-import type { Unit } from '../types'
+import type { Unit, UnitMaster } from '../types'
 
-export const UNITS: Unit[] = ['LITER', 'ML', 'KG', 'GRAM', 'PIECE', 'DOZEN', 'PACKET', 'BOX', 'BOTTLE']
-
-export const UNIT_OPTIONS = UNITS.map((unit) => ({ value: unit, label: unit }))
-
-const FAMILIES: Record<Unit, Unit[]> = {
+// Legacy unit families still convert between each other on the server. Units
+// created in the Unit Master are their own family and only convert to themselves.
+const LEGACY_FAMILIES: Record<string, string[]> = {
   LITER: ['LITER', 'ML'],
   ML: ['LITER', 'ML'],
   KG: ['KG', 'GRAM'],
@@ -16,11 +14,26 @@ const FAMILIES: Record<Unit, Unit[]> = {
   BOTTLE: ['BOTTLE'],
 }
 
-export function unitsFor(base: Unit): Unit[] {
-  return FAMILIES[base] ?? [base]
+export interface UnitOption {
+  value: Unit
+  label: string
 }
 
-export function unitOptionsFor(base: Unit | undefined) {
-  const units = base ? unitsFor(base) : UNITS
-  return units.map((unit) => ({ value: unit, label: unit }))
+export function unitsFor(base: Unit): string[] {
+  return LEGACY_FAMILIES[base.toUpperCase()] ?? [base]
+}
+
+export function unitOptionsFor(units: UnitMaster[], base?: Unit): UnitOption[] {
+  const options = units.map((unit) => ({
+    value: unit.unitCode,
+    label: `${unit.unitCode} — ${unit.unitName}`,
+  }))
+  if (!base) {
+    return options
+  }
+  const allowed = new Set(unitsFor(base))
+  const matching = options.filter((option) => allowed.has(option.value.toUpperCase()))
+  return matching.some((option) => option.value.toUpperCase() === base.toUpperCase())
+    ? matching
+    : [{ value: base, label: base }, ...matching]
 }

@@ -1,7 +1,6 @@
 package com.itemmanagement.dto.master;
 
 import com.itemmanagement.entity.enums.StoreStatus;
-import com.itemmanagement.entity.enums.Unit;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -42,7 +41,7 @@ public record ItemResponse(
             @Size(max = 255) String description,
             @NotNull(message = "Category is required") Long categoryId,
             @NotNull(message = "Tax is required. Select an exempt tax for tax-free items") Long taxId,
-            @NotNull(message = "Unit is required") Unit baseUnit,
+            @NotBlank(message = "Unit is required") @Size(max = 20) String baseUnit,
             @NotNull(message = "Rate is required")
             @DecimalMin(value = "0.01", message = "Rate must be greater than zero")
             BigDecimal rate,

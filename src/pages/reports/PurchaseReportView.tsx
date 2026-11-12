@@ -51,8 +51,6 @@ export function PurchaseReportView({ filters }: { filters: ReportFilters }) {
       ),
     },
     { key: 'qty', header: 'Qty', align: 'right', render: (row) => `${qty(row.quantity)} ${row.unit}` },
-    { key: 'rate', header: 'Rate', align: 'right', render: (row) => money(row.purchaseRate) },
-    { key: 'amount', header: 'Amount', align: 'right', render: (row) => <span className="font-semibold">{money(row.totalAmount)}</span> },
   ]
 
   const exportColumns = [
@@ -64,8 +62,6 @@ export function PurchaseReportView({ filters }: { filters: ReportFilters }) {
     { header: 'Item', value: (row: Row) => row.itemName },
     { header: 'Quantity', value: (row: Row) => Number(row.quantity) },
     { header: 'Unit', value: (row: Row) => row.unit },
-    { header: 'Rate', value: (row: Row) => Number(row.purchaseRate) },
-    { header: 'Amount', value: (row: Row) => Number(row.totalAmount) },
   ]
 
   if (error) return <Card><ErrorState message={error} onRetry={reload} /></Card>
@@ -73,7 +69,7 @@ export function PurchaseReportView({ filters }: { filters: ReportFilters }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Purchase value" value={money(data?.totalAmount ?? 0)} icon={<IndianRupee className="h-5 w-5" />} tone="blue" />
+        <StatCard label="Purchase value" value={money(data?.totalAmount ?? 0)} hint="Completed bill amounts" icon={<IndianRupee className="h-5 w-5" />} tone="blue" />
         <StatCard label="Entries" value={data?.entries ?? 0} hint="Purchase lines in range" icon={<ClipboardList className="h-5 w-5" />} tone="brand" />
         <StatCard label="Quantity purchased" value={qty(data?.totalBaseQuantity ?? 0)} hint="Total base units" icon={<Package className="h-5 w-5" />} tone="purple" />
       </div>

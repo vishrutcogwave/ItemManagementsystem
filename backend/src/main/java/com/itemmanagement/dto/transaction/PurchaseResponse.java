@@ -24,6 +24,7 @@ public record PurchaseResponse(
         BigDecimal grandTotal,
         BigDecimal paidAmount,
         BigDecimal balanceAmount,
+        String paymentStatus,
         String notes,
         String status,
         Instant createdAt,

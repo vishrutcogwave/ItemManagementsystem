@@ -13,7 +13,6 @@ import com.itemmanagement.entity.TaxMaster;
 import com.itemmanagement.entity.enums.PurchaseStatus;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.ItemRepository;
@@ -234,6 +233,12 @@ public class PurchaseService {
     }
 
     private BigDecimal unitCost(PurchaseDetail detail) {
+        // Rate-less purchases settle on one payable amount, so there is no item
+        // cost to blend into stock valuation; keep the existing average cost.
+        if (detail.getPurchaseRate() == null
+                || detail.getPurchaseRate().compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
         if (detail.getBaseQuantity().compareTo(BigDecimal.ZERO) == 0) {
             return detail.getPurchaseRate();
         }
@@ -264,18 +269,19 @@ public class PurchaseService {
             if (item.getStatus() != StoreStatus.ACTIVE) {
                 throw ApiException.badRequest(item.getItemName() + " is inactive");
             }
-            Unit unit = UnitConverter.parse(line.unit());
+            String unit = UnitConverter.parse(line.unit());
             if (unit == null) {
                 unit = item.getBaseUnit();
             }
             BigDecimal baseQuantity = UnitConverter.toBase(line.quantity(), unit, item.getBaseUnit());
-            BigDecimal gross = line.quantity().multiply(line.purchaseRate()).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal rate = money(line.purchaseRate());
+            BigDecimal gross = line.quantity().multiply(rate).setScale(2, RoundingMode.HALF_UP);
             BigDecimal lineDiscount = money(line.discount());
             if (lineDiscount.compareTo(gross) > 0) {
                 throw ApiException.badRequest("Discount cannot exceed the line amount for " + item.getItemName());
             }
             rawLines.add(new RawLine(item, unit, line.quantity().setScale(3, RoundingMode.HALF_UP),
-                    line.purchaseRate().setScale(2, RoundingMode.HALF_UP), baseQuantity, gross, lineDiscount));
+                    rate, baseQuantity, gross, lineDiscount));
             subtotal = subtotal.add(gross);
         }
         BigDecimal headerDiscount = money(request.discount());
@@ -312,12 +318,12 @@ public class PurchaseService {
                     .storeId(storeId)
                     .itemId(raw.item().getId())
                     .quantity(raw.quantity())
-                    .unit(raw.unit().name())
+                    .unit(raw.unit())
                     .baseQuantity(raw.baseQuantity())
                     .purchaseRate(raw.rate())
                     .discount(lineDiscount)
                     .tax(lineTax.taxAmount())
-                    .totalAmount(lineTax.payableAmount())
+                    .totalAmount(lineTax.taxableAmount())
                     .taxId(itemTax.getId())
                     .taxNameSnapshot(itemTax.getTaxName())
                     .gstPercentage(itemTax.getGstPercentage())
@@ -337,9 +343,13 @@ public class PurchaseService {
             igst = igst.add(lineTax.igstAmount());
             totalTax = totalTax.add(lineTax.taxAmount());
         }
-        BigDecimal grand = taxable.add(totalTax).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal net = subtotal.subtract(discount).setScale(2, RoundingMode.HALF_UP);
+        // The entered payable is the purchase amount; tax is kept for reporting only.
+        BigDecimal grand = request.payableAmount() == null
+                ? net
+                : request.payableAmount().setScale(2, RoundingMode.HALF_UP);
         if (grand.compareTo(BigDecimal.ZERO) < 0) {
-            throw ApiException.badRequest("Total discount cannot exceed the purchase amount");
+            throw ApiException.badRequest("Payable amount cannot be negative");
         }
         return new Computed(details, items, subtotal.setScale(2, RoundingMode.HALF_UP),
                 discount.setScale(2, RoundingMode.HALF_UP), totalTax.setScale(2, RoundingMode.HALF_UP),
@@ -347,7 +357,7 @@ public class PurchaseService {
                 sgst.setScale(2, RoundingMode.HALF_UP), igst.setScale(2, RoundingMode.HALF_UP));
     }
 
-    private record RawLine(Item item, Unit unit, BigDecimal quantity, BigDecimal rate,
+    private record RawLine(Item item, String unit, BigDecimal quantity, BigDecimal rate,
                            BigDecimal baseQuantity, BigDecimal gross, BigDecimal discount) {
     }
 
@@ -389,7 +399,17 @@ public class PurchaseService {
                 purchase.getDiscount(), purchase.getTaxableAmount(), purchase.getCgstAmount(),
                 purchase.getSgstAmount(), purchase.getIgstAmount(), purchase.getTax(),
                 purchase.getGrandTotal(), purchase.getPaidAmount(), purchase.getBalanceAmount(),
-                purchase.getNotes(), purchase.getStatus().name(), purchase.getCreatedAt(), lines);
+                paymentStatus(purchase), purchase.getNotes(), purchase.getStatus().name(),
+                purchase.getCreatedAt(), lines);
+    }
+
+    private String paymentStatus(Purchase purchase) {
+        BigDecimal grand = purchase.getGrandTotal() == null ? BigDecimal.ZERO : purchase.getGrandTotal();
+        BigDecimal paid = purchase.getPaidAmount() == null ? BigDecimal.ZERO : purchase.getPaidAmount();
+        if (paid.signum() <= 0) {
+            return grand.signum() == 0 ? "PAID" : "UNPAID";
+        }
+        return paid.compareTo(grand) >= 0 ? "PAID" : "PARTIALLY_PAID";
     }
 
     private Purchase find(Long id, Long storeId) {

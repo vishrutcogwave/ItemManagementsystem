@@ -12,7 +12,6 @@ import com.itemmanagement.entity.StockAdjustment;
 import com.itemmanagement.entity.enums.AdjustmentType;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
-import com.itemmanagement.entity.enums.Unit;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchInventoryRepository;
 import com.itemmanagement.repository.BranchRepository;
@@ -119,7 +118,7 @@ public class InventoryService {
                     item == null ? "" : item.getItemName(), txn.getTransactionType().name(),
                     txn.getReferenceType(), txn.getReferenceNumber(), txn.getQuantityIn(),
                     txn.getQuantityOut(), txn.getBalanceAfter(),
-                    item == null ? "" : item.getBaseUnit().name(), txn.getNotes(),
+                    item == null ? "" : item.getBaseUnit(), txn.getNotes(),
                     txn.getTransactionDate());
         });
     }
@@ -131,7 +130,7 @@ public class InventoryService {
         Branch branch = activeBranch(request.branchId(), storeId);
         Item item = itemRepository.findByIdAndStoreId(request.itemId(), storeId)
                 .orElseThrow(() -> ApiException.badRequest("Select a valid item"));
-        Unit unit = UnitConverter.parse(request.unit());
+        String unit = UnitConverter.parse(request.unit());
         if (unit == null) {
             unit = item.getBaseUnit();
         }
@@ -155,7 +154,7 @@ public class InventoryService {
                 .adjustmentType(type)
                 .quantity(request.quantity())
                 .baseQuantity(baseQuantity)
-                .unit(unit.name())
+                .unit(unit)
                 .reason(request.reason().trim())
                 .createdBy(TenantContext.userId())
                 .build());
@@ -313,7 +312,7 @@ public class InventoryService {
                 inventory == null ? null : inventory.getId(),
                 branch.getId(), branch.getBranchCode(), branch.getBranchName(),
                 item.getId(), item.getItemCode(), item.getItemName(), item.getCategoryId(),
-                category == null ? "" : category.getCategoryName(), item.getBaseUnit().name(),
+                category == null ? "" : category.getCategoryName(), item.getBaseUnit(),
                 stock, minimum, purchase, selling,
                 stock.multiply(avgCost).setScale(2, RoundingMode.HALF_UP),
                 stock.compareTo(minimum) <= 0);

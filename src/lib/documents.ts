@@ -1,4 +1,4 @@
-import type { Purchase, Sale } from '../types'
+import type { Purchase, Sale, SupplierPayment } from '../types'
 import { printHtml } from './export'
 import { formatDate, money, qty } from './format'
 
@@ -18,16 +18,11 @@ interface StoreInfo {
 }
 
 export function printPurchase(purchase: Purchase, store: StoreInfo): void {
-  const interState = Number(purchase.igstAmount) > 0
   const rows = purchase.items
     .map(
       (line) => `<tr>
         <td>${escapeHtml(line.itemName)}<div class="muted">${escapeHtml(line.itemCode)}</div></td>
         <td class="right">${qty(line.quantity)} ${line.unit}</td>
-        <td class="right">${money(line.purchaseRate)}</td>
-        <td class="right">${money(line.discount)}</td>
-        <td class="right">${money(line.tax)}<div class="muted">${escapeHtml(line.taxName)} ${Number(line.gstPercentage ?? 0)}%</div></td>
-        <td class="right">${money(line.totalAmount ?? 0)}</td>
       </tr>`,
     )
     .join('')
@@ -50,24 +45,57 @@ export function printPurchase(purchase: Purchase, store: StoreInfo): void {
       <div class="box"><strong>Payment</strong><br/>Paid ${money(purchase.paidAmount)} · Balance ${money(purchase.balanceAmount)}</div>
     </div>
     <table>
-      <thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Rate</th><th class="right">Discount</th><th class="right">Tax</th><th class="right">Amount</th></tr></thead>
+      <thead><tr><th>Item</th><th class="right">Qty</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="totals">
-      <div><span>Subtotal</span><span>${money(purchase.subtotal)}</span></div>
-      <div><span>Discount</span><span>− ${money(purchase.discount)}</span></div>
-      <div><span>Taxable value</span><span>${money(purchase.taxableAmount)}</span></div>
-      ${
-        interState
-          ? `<div><span>IGST</span><span>${money(purchase.igstAmount)}</span></div>`
-          : `<div><span>CGST</span><span>${money(purchase.cgstAmount)}</span></div>
-             <div><span>SGST</span><span>${money(purchase.sgstAmount)}</span></div>`
-      }
-      <div><span>Total tax</span><span>${money(purchase.tax)}</span></div>
-      <div class="grand"><span>Grand total</span><span>${money(purchase.grandTotal)}</span></div>
+      <div class="grand"><span>Purchase amount (payable)</span><span>${money(purchase.grandTotal)}</span></div>
+      <div><span>Paid</span><span>${money(purchase.paidAmount)}</span></div>
+      <div><span>Balance</span><span>${money(purchase.balanceAmount)}</span></div>
     </div>
     ${purchase.notes ? `<p class="muted" style="margin-top:14px">Notes: ${escapeHtml(purchase.notes)}</p>` : ''}`,
     `Purchase ${purchase.purchaseNumber}`,
+  )
+}
+
+export function printSupplierPayment(payment: SupplierPayment, store: StoreInfo): void {
+  const rows = payment.allocations
+    .map(
+      (allocation) => `<tr>
+        <td>${escapeHtml(allocation.purchaseNumber)}</td>
+        <td>${allocation.purchaseDate ? formatDate(allocation.purchaseDate) : '—'}</td>
+        <td class="right">${money(allocation.amount)}</td>
+      </tr>`,
+    )
+    .join('')
+
+  printHtml(
+    `<div class="title-row">
+      <div>
+        <p class="brand">${escapeHtml(store.name)}</p>
+        <h1>Supplier payment receipt</h1>
+        <p class="muted">${escapeHtml(payment.paymentNumber)} · ${formatDate(payment.paymentDate)}</p>
+      </div>
+      <div class="right">
+        <p><strong>${escapeHtml(payment.supplierName)}</strong></p>
+        <p class="muted">${escapeHtml(payment.supplierCode)}</p>
+        <p class="muted">Method: ${escapeHtml(payment.paymentMethod)}</p>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="box"><strong>Paid</strong><br/>${money(payment.amount)}</div>
+      <div class="box"><strong>Reference</strong><br/>${escapeHtml(payment.referenceNumber || '—')}</div>
+    </div>
+    <table>
+      <thead><tr><th>Purchase bill</th><th>Bill date</th><th class="right">Allocated</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="totals">
+      <div class="grand"><span>Total paid</span><span>${money(payment.amount)}</span></div>
+    </div>
+    ${payment.remarks ? `<p class="muted" style="margin-top:14px">Remarks: ${escapeHtml(payment.remarks)}</p>` : ''}
+    <p class="muted" style="margin-top:14px">Recorded by ${escapeHtml(payment.createdByName || '—')} on ${escapeHtml(payment.createdAt)}</p>`,
+    `Supplier payment ${payment.paymentNumber}`,
   )
 }
 

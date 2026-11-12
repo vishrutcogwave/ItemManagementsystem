@@ -23,10 +23,10 @@ import {
 import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
+import { useUnits } from '../hooks/useUnits'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { printPurchase } from '../lib/documents'
 import { formatDate, money, qty, today } from '../lib/format'
-import { billPreview, isInterState } from '../lib/tax'
 import { unitOptionsFor } from '../lib/units'
 import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
@@ -37,8 +37,6 @@ interface LineForm {
   itemId: number | ''
   quantity: string
   unit: Unit
-  purchaseRate: string
-  discount: string
 }
 
 interface PurchaseFormState {
@@ -47,7 +45,7 @@ interface PurchaseFormState {
   invoiceNumber: string
   purchaseDate: string
   status: 'DRAFT' | 'COMPLETED'
-  discount: string
+  payableAmount: string
   paidAmount: string
   notes: string
   items: LineForm[]
@@ -58,15 +56,15 @@ const newLine = (): LineForm => ({
   key: ++lineKey,
   itemId: '',
   quantity: '1',
-  unit: 'PIECE',
-  purchaseRate: '',
-  discount: '0',
+  unit: '',
 })
 
 const toNumber = (value: string | number) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
+
+const round2 = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
 
 export function PurchasesPage() {
   const [params, setParams] = useSearchParams()
@@ -105,6 +103,8 @@ export function PurchasesPage() {
     [],
   )
   const { data: items } = useApi<Item[]>(() => api.get('/items/options').then((response) => response.data), [])
+  const { units } = useUnits()
+  const activeUnits = units.filter((unit) => unit.status === 'ACTIVE')
 
   const [formOpen, setFormOpen] = useState(params.get('new') === '1')
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -114,7 +114,7 @@ export function PurchasesPage() {
     invoiceNumber: '',
     purchaseDate: today(),
     status: 'COMPLETED',
-    discount: '0',
+    payableAmount: '',
     paidAmount: '',
     notes: '',
     items: [newLine()],
@@ -146,7 +146,7 @@ export function PurchasesPage() {
       invoiceNumber: '',
       purchaseDate: today(),
       status: 'COMPLETED',
-      discount: '0',
+      payableAmount: '',
       paidAmount: '',
       notes: '',
       items: [newLine()],
@@ -164,7 +164,7 @@ export function PurchasesPage() {
       invoiceNumber: purchase.invoiceNumber ?? '',
       purchaseDate: purchase.purchaseDate,
       status: 'DRAFT',
-      discount: String(purchase.discount),
+      payableAmount: String(purchase.grandTotal),
       paidAmount: String(purchase.paidAmount ?? 0),
       notes: purchase.notes ?? '',
       items: purchase.items.map((line) => ({
@@ -172,8 +172,6 @@ export function PurchasesPage() {
         itemId: line.itemId,
         quantity: String(line.quantity),
         unit: line.unit,
-        purchaseRate: String(line.purchaseRate),
-        discount: String(line.discount),
       })),
     })
     setFormErrors({})
@@ -208,8 +206,7 @@ export function PurchasesPage() {
     const item = items?.find((entry) => entry.id === itemId)
     updateLine(key, {
       itemId,
-      unit: item?.baseUnit ?? 'PIECE',
-      purchaseRate: '',
+      unit: item?.baseUnit ?? '',
     })
   }
 
@@ -233,7 +230,7 @@ export function PurchasesPage() {
           ...current,
           items: current.items.map((line) =>
             line.key === empty.key
-              ? { ...line, itemId: match.id, unit: match.baseUnit, purchaseRate: '' }
+              ? { ...line, itemId: match.id, unit: match.baseUnit }
               : line,
           ),
         }
@@ -247,8 +244,6 @@ export function PurchasesPage() {
             itemId: match.id,
             quantity: '1',
             unit: match.baseUnit,
-            purchaseRate: '',
-            discount: '0',
           },
         ],
       }
@@ -257,21 +252,18 @@ export function PurchasesPage() {
     return true
   }
 
-  const inclusive = Boolean(store?.taxInclusive)
-  const branchState = branches.find((branch) => branch.id === form.branchId)?.state ?? null
-  const supplierState = suppliers?.find((supplier) => supplier.id === form.supplierId)?.state ?? null
-  const interState = isInterState(branchState, supplierState)
-  const preview = billPreview(
-    form.items.map((line) => ({
-      gross: toNumber(line.quantity) * toNumber(line.purchaseRate),
-      discount: toNumber(line.discount),
-      gstPercentage: items?.find((entry) => entry.id === line.itemId)?.gstPercentage ?? 0,
-    })),
-    toNumber(form.discount),
-    inclusive,
-    interState,
-  )
-  const { subtotal, tax: totalTax, grand: grandTotal } = preview
+  // The purchase is settled on one supplier-agreed amount; item rates are never
+  // entered or added up on the client.
+  const payableAmount = form.payableAmount === '' ? 0 : round2(toNumber(form.payableAmount))
+  const paidAmount =
+    form.paidAmount === ''
+      ? form.status === 'COMPLETED'
+        ? payableAmount
+        : 0
+      : round2(toNumber(form.paidAmount))
+  const balanceAmount = round2(payableAmount - paidAmount)
+  const paymentStatus =
+    paidAmount <= 0 ? (payableAmount === 0 ? 'PAID' : 'UNPAID') : paidAmount >= payableAmount ? 'PAID' : 'PARTIALLY_PAID'
 
   const save = async () => {
     const nextErrors: Record<string, string> = {}
@@ -281,6 +273,15 @@ export function PurchasesPage() {
     const validLines = form.items.filter((line) => line.itemId && toNumber(line.quantity) > 0)
     if (validLines.length === 0) nextErrors.items = 'Add at least one item with quantity'
     if (validLines.length !== form.items.length) nextErrors.items = 'Remove empty lines or enter quantity'
+    if (form.payableAmount === '' || toNumber(form.payableAmount) <= 0) {
+      nextErrors.payableAmount = 'Enter the purchase amount payable to the supplier'
+    }
+    if (form.paidAmount !== '' && toNumber(form.paidAmount) < 0) {
+      nextErrors.paidAmount = 'Paid amount cannot be negative'
+    }
+    if (form.paidAmount !== '' && toNumber(form.paidAmount) > payableAmount) {
+      nextErrors.paidAmount = 'Paid amount cannot exceed the payable amount'
+    }
     if (Object.keys(nextErrors).length > 0) {
       setFormErrors(nextErrors)
       return
@@ -295,7 +296,7 @@ export function PurchasesPage() {
         supplierId: form.supplierId,
         invoiceNumber: form.invoiceNumber.trim() || undefined,
         purchaseDate: form.purchaseDate,
-        discount: toNumber(form.discount),
+        payableAmount: toNumber(form.payableAmount),
         paidAmount: form.paidAmount === '' ? undefined : toNumber(form.paidAmount),
         notes: form.notes.trim() || undefined,
         status: editingId ? 'DRAFT' : form.status,
@@ -303,8 +304,6 @@ export function PurchasesPage() {
           itemId: line.itemId,
           quantity: toNumber(line.quantity),
           unit: line.unit,
-          purchaseRate: toNumber(line.purchaseRate),
-          discount: toNumber(line.discount),
         })),
       }
 
@@ -370,6 +369,11 @@ export function PurchasesPage() {
         ),
     },
     { key: 'status', header: 'Status', render: (row) => <StatusBadge status={row.status} /> },
+    {
+      key: 'payment',
+      header: 'Payment',
+      render: (row) => <StatusBadge status={row.paymentStatus} />,
+    },
     {
       key: 'actions',
       header: '',
@@ -594,14 +598,19 @@ export function PurchasesPage() {
                 </Select>
               </Field>
             )}
-            <Field label="Paid amount" hint="Blank = full payment on completed" className={editingId ? 'lg:col-span-1' : ''}>
+            <Field
+              label="Paid amount"
+              error={formErrors.paidAmount}
+              hint="Blank = pay the full purchase amount on completion"
+              className={editingId ? 'lg:col-span-1' : ''}
+            >
               <Input
                 type="number"
                 min="0"
                 step="0.01"
                 value={form.paidAmount}
                 onChange={(event) => setForm({ ...form, paidAmount: event.target.value })}
-                placeholder={String(grandTotal.toFixed(2))}
+                placeholder={String(paidAmount.toFixed(2))}
               />
             </Field>
             <Field label="Notes" className="sm:col-span-2 lg:col-span-2">
@@ -632,23 +641,18 @@ export function PurchasesPage() {
               <ScanBar onDetected={scanItem} placeholder="Scan barcode to add an item line" />
             </div>
             <div className="thin-scrollbar overflow-x-auto">
-              <table className="w-full min-w-[780px]">
+              <table className="w-full min-w-[520px]">
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="th">Item</th>
-                    <th className="th w-16">Qty</th>
-                    <th className="th w-28">Unit</th>
-                    <th className="th w-28">Rate ₹</th>
-                    <th className="th w-16">Disc ₹</th>
-                    <th className="th w-24">GST</th>
-                    <th className="th w-20 text-right">Total</th>
+                    <th className="th w-20">Qty</th>
+                    <th className="th w-32">Unit</th>
                     <th className="th w-10" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {form.items.map((line, index) => {
+                  {form.items.map((line) => {
                     const item = items?.find((entry) => entry.id === line.itemId)
-                    const linePreview = preview.lines[index]
                     return (
                       <tr key={line.key}>
                         <td className="px-2 py-2">
@@ -675,46 +679,13 @@ export function PurchasesPage() {
                             value={line.unit}
                             onChange={(event) => updateLine(line.key, { unit: event.target.value as Unit })}
                           >
-                            {unitOptionsFor(item?.baseUnit).map((option) => (
+                            {unitOptionsFor(activeUnits, item?.baseUnit).map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
                             ))}
                           </Select>
                         </td>
-                        <td className="px-2 py-2">
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.purchaseRate}
-                            onChange={(event) => updateLine(line.key, { purchaseRate: event.target.value })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={line.discount}
-                            onChange={(event) => updateLine(line.key, { discount: event.target.value })}
-                          />
-                        </td>
-                        <td className="px-2 py-2">
-                          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-right">
-                            <p className="text-[10px] font-semibold text-slate-400">
-                              {item
-                                ? item.taxType === 'EXEMPT'
-                                  ? 'Exempt'
-                                  : `${Number(item.gstPercentage)}% GST`
-                                : '—'}
-                            </p>
-                            <p className="text-xs font-semibold text-slate-700">
-                              {money(linePreview?.taxAmount ?? 0)}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="td text-right font-semibold">{money(linePreview?.payableAmount ?? 0)}</td>
                         <td className="px-2 py-2 text-center">
                           <button
                             onClick={() => removeLine(line.key)}
@@ -733,62 +704,38 @@ export function PurchasesPage() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:justify-end">
-            <div className="flex gap-3 sm:w-80">
-              <Field label="Bill discount ₹" className="flex-1">
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.discount}
-                  onChange={(event) => setForm({ ...form, discount: event.target.value })}
-                />
-              </Field>
-              <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5">
-                <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">GST mode</p>
-                <p className="mt-0.5 text-xs font-semibold text-slate-700">
-                  {inclusive ? 'Inclusive' : 'Exclusive'}
-                  {interState ? ' · inter-state (IGST)' : ' · intra-state (CGST+SGST)'}
-                </p>
-              </div>
-            </div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-end">
             <div className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm sm:w-72">
-              <div className="flex justify-between py-0.5 text-slate-500">
-                <span>Subtotal</span>
-                <span>{money(subtotal)}</span>
-              </div>
-              <div className="flex justify-between py-0.5 text-slate-500">
-                <span>Discount</span>
-                <span>− {money(preview.discount)}</span>
-              </div>
-              <div className="flex justify-between py-0.5 text-slate-500">
-                <span>Taxable value</span>
-                <span>{money(preview.taxable)}</span>
-              </div>
-              {interState ? (
+              <div className="space-y-1">
+                <Field label="Purchase amount / payable ₹" required error={formErrors.payableAmount}>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.payableAmount}
+                    onChange={(event) => setForm({ ...form, payableAmount: event.target.value })}
+                    placeholder="0.00"
+                  />
+                </Field>
+                <p className="text-[10px] text-slate-400">
+                  Total amount agreed with the supplier for this purchase. No item rates or GST are added.
+                </p>
                 <div className="flex justify-between py-0.5 text-slate-500">
-                  <span>IGST</span>
-                  <span>{money(preview.igst)}</span>
+                  <span>Paid</span>
+                  <span>{money(paidAmount)}</span>
                 </div>
-              ) : (
-                <>
-                  <div className="flex justify-between py-0.5 text-slate-500">
-                    <span>CGST</span>
-                    <span>{money(preview.cgst)}</span>
-                  </div>
-                  <div className="flex justify-between py-0.5 text-slate-500">
-                    <span>SGST</span>
-                    <span>{money(preview.sgst)}</span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between py-0.5 text-slate-500">
-                <span>Total tax</span>
-                <span>{money(totalTax)}</span>
-              </div>
-              <div className="mt-1.5 flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
-                <span>Grand total</span>
-                <span>{money(grandTotal)}</span>
+                <div
+                  className={`flex justify-between border-t border-slate-200 pt-2 text-sm font-bold ${
+                    balanceAmount > 0 ? 'text-rose-600' : 'text-emerald-600'
+                  }`}
+                >
+                  <span>Balance</span>
+                  <span>{money(balanceAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Settlement</span>
+                  <StatusBadge status={paymentStatus} />
+                </div>
               </div>
             </div>
           </div>
@@ -833,11 +780,17 @@ export function PurchasesPage() {
           <LoadingState />
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
               <div className="rounded-lg bg-slate-50 px-3 py-2">
                 <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Status</p>
                 <div className="mt-1">
                   <StatusBadge status={detail.status} />
+                </div>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2">
+                <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Settlement</p>
+                <div className="mt-1">
+                  <StatusBadge status={detail.paymentStatus} />
                 </div>
               </div>
               <div className="rounded-lg bg-slate-50 px-3 py-2">
@@ -862,10 +815,6 @@ export function PurchasesPage() {
                   <tr>
                     <th className="th">Item</th>
                     <th className="th text-right">Qty</th>
-                    <th className="th text-right">Rate</th>
-                    <th className="th text-right">Disc</th>
-                    <th className="th text-right">Tax</th>
-                    <th className="th text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -878,16 +827,6 @@ export function PurchasesPage() {
                       <td className="td text-right">
                         {qty(line.quantity)} {line.unit}
                       </td>
-                      <td className="td text-right">{money(line.purchaseRate)}</td>
-                      <td className="td text-right">{money(line.discount)}</td>
-                      <td className="td text-right">
-                        <p>{money(line.tax)}</p>
-                        <p className="text-[10px] text-slate-400">
-                          {line.taxName ?? '—'}
-                          {line.taxName && line.taxId ? ` · ${Number(line.gstPercentage ?? 0)}%` : ''}
-                        </p>
-                      </td>
-                      <td className="td text-right font-semibold">{money(line.totalAmount ?? 0)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -895,42 +834,21 @@ export function PurchasesPage() {
             </div>
 
             <div className="ml-auto w-full max-w-72 space-y-1 text-sm">
-              <div className="flex justify-between text-slate-500">
-                <span>Subtotal</span>
-                <span>{money(detail.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Discount</span>
-                <span>− {money(detail.discount)}</span>
-              </div>
-              <div className="flex justify-between text-slate-500">
-                <span>Taxable value</span>
-                <span>{money(detail.taxableAmount)}</span>
-              </div>
-              {Number(detail.igstAmount) > 0 ? (
-                <div className="flex justify-between text-slate-500">
-                  <span>IGST</span>
-                  <span>{money(detail.igstAmount)}</span>
-                </div>
-              ) : (
-                <>
-                  <div className="flex justify-between text-slate-500">
-                    <span>CGST</span>
-                    <span>{money(detail.cgstAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>SGST</span>
-                    <span>{money(detail.sgstAmount)}</span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between text-slate-500">
-                <span>Total tax</span>
-                <span>{money(detail.tax)}</span>
-              </div>
               <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-bold text-slate-900">
-                <span>Grand total</span>
+                <span>Purchase amount (payable)</span>
                 <span>{money(detail.grandTotal)}</span>
+              </div>
+              <div className="flex justify-between text-slate-500">
+                <span>Paid</span>
+                <span>{money(detail.paidAmount)}</span>
+              </div>
+              <div
+                className={`flex justify-between font-semibold ${
+                  Number(detail.balanceAmount) > 0 ? 'text-rose-600' : 'text-emerald-600'
+                }`}
+              >
+                <span>Balance</span>
+                <span>{money(detail.balanceAmount)}</span>
               </div>
             </div>
 

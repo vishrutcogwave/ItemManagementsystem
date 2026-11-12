@@ -29,6 +29,8 @@ public interface ItemRepository extends JpaRepository<Item, Long> {
 
     long countByStoreIdAndTaxId(Long storeId, Long taxId);
 
+    long countByStoreIdAndBaseUnitIgnoreCase(Long storeId, String baseUnit);
+
     boolean existsByStoreIdAndItemCodeIgnoreCase(Long storeId, String itemCode);
 
     Optional<Item> findByStoreIdAndItemCodeIgnoreCase(Long storeId, String itemCode);

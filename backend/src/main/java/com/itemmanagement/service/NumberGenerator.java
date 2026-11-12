@@ -40,4 +40,8 @@ public class NumberGenerator {
     public String nextImportNumber() {
         return next("item_import_number_seq", "IMP");
     }
+
+    public String nextSupplierPayment() {
+        return next("supplier_payment_number_seq", "SPAY");
+    }
 }

@@ -22,7 +22,11 @@ const ItemImportsPage = lazy(() =>
 )
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((m) => ({ default: m.CategoriesPage })))
 const TaxMasterPage = lazy(() => import('./pages/TaxMasterPage').then((m) => ({ default: m.TaxMasterPage })))
+const UnitMasterPage = lazy(() => import('./pages/UnitMasterPage').then((m) => ({ default: m.UnitMasterPage })))
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage').then((m) => ({ default: m.SuppliersPage })))
+const SupplierPaymentsPage = lazy(() =>
+  import('./pages/SupplierPaymentsPage').then((m) => ({ default: m.SupplierPaymentsPage })),
+)
 const PurchasesPage = lazy(() => import('./pages/PurchasesPage').then((m) => ({ default: m.PurchasesPage })))
 const InventoryPage = lazy(() => import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage })))
 const TransfersPage = lazy(() => import('./pages/TransfersPage').then((m) => ({ default: m.TransfersPage })))
@@ -217,6 +221,14 @@ export default function App() {
             }
           />
           <Route
+            path="units"
+            element={
+              <RequirePermission permission="UNIT_VIEW">
+                <UnitMasterPage />
+              </RequirePermission>
+            }
+          />
+          <Route
             path="suppliers"
             element={
               <RequirePermission permission="SUPPLIER_VIEW">
@@ -229,6 +241,14 @@ export default function App() {
             element={
               <RequirePermission permission="PURCHASE_VIEW">
                 <PurchasesPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="supplier-payments"
+            element={
+              <RequirePermission permission="PURCHASE_VIEW">
+                <SupplierPaymentsPage />
               </RequirePermission>
             }
           />
