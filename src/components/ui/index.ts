@@ -15,5 +15,6 @@ export {
 } from './display'
 export { DataTable, Pagination } from './table'
 export type { Column } from './table'
+export { ScrollRow } from './ScrollRow'
 export { Modal, ConfirmDialog } from './Modal'
 export { Toaster } from './Toast'

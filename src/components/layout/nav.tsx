@@ -46,14 +46,14 @@ export const storeNav: NavGroup[] = [
     items: [
       { to: '/pos', label: 'POS Billing', icon: ShoppingCart, permission: 'SALES_MANAGE' },
       { to: '/sales/new', label: 'Sales Entry', icon: SquarePen, permission: 'SALES_MANAGE' },
-      { to: '/sales', label: 'Sales History', icon: ReceiptText, permission: 'SALES_VIEW' },
+      { to: '/sales', label: 'Sales History', icon: ReceiptText, permission: 'SALES_VIEW', end: true },
       { to: '/print-history', label: 'Print History', icon: Printer, permission: 'SALES_VIEW' },
     ],
   },
   {
     label: 'Catalog',
     items: [
-      { to: '/items', label: 'Items', icon: Package, permission: 'ITEM_VIEW' },
+      { to: '/items', label: 'Items', icon: Package, permission: 'ITEM_VIEW', end: true },
       { to: '/items/imports', label: 'Import History', icon: FileSpreadsheet, permission: 'ITEM_VIEW' },
       { to: '/categories', label: 'Categories', icon: Tags, permission: 'CATEGORY_VIEW' },
       { to: '/taxes', label: 'Tax Master', icon: Percent, permission: 'TAX_VIEW' },
