@@ -1,5 +1,5 @@
 import { AlertTriangle, X } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Button } from './Button'
 
 interface ModalProps {
@@ -31,18 +31,67 @@ export function Modal({
   size = 'md',
   bodyClassName = '',
 }: ModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  const triggerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  // Remember the trigger while closed: children may autoFocus, which makes
+  // document.activeElement unreliable by the time the open effect runs.
+  useEffect(() => {
+    if (open) return
+    const record = () => {
+      const active = document.activeElement
+      if (!(active instanceof HTMLElement) || active.closest('[role="dialog"]')) return
+      triggerRef.current = active
+    }
+    record()
+    document.addEventListener('focusin', record)
+    return () => document.removeEventListener('focusin', record)
+  }, [open])
+
   useEffect(() => {
     if (!open) return
+    const previousFocus = triggerRef.current
+    const previousOverflow = document.body.style.overflow
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', handler)
     document.body.style.overflow = 'hidden'
+    const focusTimer = window.setTimeout(() => dialogRef.current?.focus(), 0)
     return () => {
+      window.clearTimeout(focusTimer)
       document.removeEventListener('keydown', handler)
-      document.body.style.overflow = ''
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
     }
-  }, [open, onClose])
+  }, [open])
+
+  const trapTab = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab' || !dialogRef.current) return
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((node) => node.offsetParent !== null)
+    if (focusable.length === 0) {
+      event.preventDefault()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   if (!open) return null
 
@@ -50,9 +99,12 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-[2px]" onClick={onClose} />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-pop sm:rounded-2xl ${sizes[size]}`}
+        tabIndex={-1}
+        onKeyDown={trapTab}
+        className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-pop outline-none sm:rounded-2xl ${sizes[size]}`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
           <div>

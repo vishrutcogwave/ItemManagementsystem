@@ -21,6 +21,7 @@ import {
   Input,
   LoadingState,
   Modal,
+  ScrollRow,
   Select,
   Spinner,
 } from '../components/ui'
@@ -313,7 +314,7 @@ export function PosPage() {
           />
         </div>
 
-        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-0.5">
+        <ScrollRow label="Item categories" className="gap-2 pb-1">
           <button
             onClick={() => setCategoryId('')}
             className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold transition ${
@@ -335,7 +336,7 @@ export function PosPage() {
               {category.categoryName}
             </button>
           ))}
-        </div>
+        </ScrollRow>
 
         {error ? (
           <Card>

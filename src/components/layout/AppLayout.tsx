@@ -39,7 +39,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {!platformAdmin && store && (
-        <div className="mx-4 mt-4 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-2.5">
+        <div className="mx-4 mt-4 shrink-0 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-2.5">
           <p className="text-[10px] font-bold tracking-wider text-slate-500 uppercase">Current store</p>
           <p className="mt-0.5 truncate text-sm font-semibold text-white">{store.storeName}</p>
           <p className="truncate text-[11px] text-slate-400">
@@ -48,7 +48,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
 
-      <nav className="thin-scrollbar mt-4 flex-1 overflow-y-auto px-3 pb-4">
+      <nav
+        aria-label="Primary"
+        className="thin-scrollbar mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-gutter:stable]"
+      >
         {groups.map((group) => {
           const items = group.items.filter((item) => hasPermission(item.permission))
           if (items.length === 0) return null
@@ -82,7 +85,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
 
-      <div className="border-t border-white/5 p-3">
+      <div className="shrink-0 border-t border-white/5 p-3">
         <div className="flex items-center gap-2.5 rounded-lg px-2 py-1.5">
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600/20 text-xs font-bold text-brand-300">
             {initials(user?.fullName)}
