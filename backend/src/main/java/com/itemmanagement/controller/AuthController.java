@@ -3,8 +3,8 @@ package com.itemmanagement.controller;
 import com.itemmanagement.dto.auth.AuthResponse;
 import com.itemmanagement.dto.auth.ChangePasswordRequest;
 import com.itemmanagement.dto.auth.LoginRequest;
-import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.dto.common.MessageResponse;
+import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.security.AuthCookieService;
 import com.itemmanagement.security.AuthTokenResolver;
 import com.itemmanagement.service.AuthService;
@@ -13,7 +13,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -62,10 +61,14 @@ public class AuthController {
         return sessionResponse(authService.changePassword(request, tokenResolver.resolve(httpRequest)));
     }
 
+    /**
+     * Public self-registration is permanently disabled. Stores are created only
+     * by a Platform Administrator through POST /api/stores.
+     */
     @PostMapping("/register-store")
-    @ResponseStatus(HttpStatus.CREATED)
-    public MessageResponse registerStore(@Valid @RequestBody RegisterStoreRequest request) {
-        return authService.registerStore(request);
+    public MessageResponse registerStore() {
+        throw ApiException.forbidden(
+                "Public store registration is disabled. Contact the platform administrator to create your business account.");
     }
 
     /**
@@ -83,11 +86,13 @@ public class AuthController {
         return builder.body(response);
     }
 
+    /**
+     * Resolved by Tomcat's RemoteIpValve: X-Forwarded-For is honoured only when
+     * the connection comes from the loopback proxy, and the visitor address is
+     * then the rightmost entry NGINX appended. Every other peer is keyed on its
+     * own socket address.
+     */
     private String clientAddress(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",", 2)[0].trim();
-        }
         return request.getRemoteAddr();
     }
 }

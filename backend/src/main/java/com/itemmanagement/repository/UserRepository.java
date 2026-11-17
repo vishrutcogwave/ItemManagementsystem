@@ -25,6 +25,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findByStoreIdOrderByFullName(Long storeId);
 
+    @Query("""
+            select distinct u from User u
+            join u.branches b
+            where u.storeId = :storeId and b.id = :branchId
+            """)
+    List<User> findMembersOfBranch(@Param("storeId") Long storeId, @Param("branchId") Long branchId);
+
     boolean existsByStoreIdAndUsernameIgnoreCase(Long storeId, String username);
 
     long countByStoreId(Long storeId);

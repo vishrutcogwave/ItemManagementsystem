@@ -1,6 +1,10 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
+import com.itemmanagement.security.LoginAttemptService;
+import com.itemmanagement.service.StoreProvisioningService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -54,6 +58,19 @@ class PrintingIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
+
+    @Autowired
+    private LoginAttemptService loginAttemptService;
+
+    // All requests in this class share the loopback address, so pairing failures
+    // must not leak between tests.
+    @BeforeEach
+    void resetRateLimits() {
+        loginAttemptService.clearAll();
+    }
 
     // ---------- printer configuration ----------
 
@@ -164,9 +181,9 @@ class PrintingIntegrationTest {
         assertEquals(session.storeId(), paired.get("storeId").asLong());
         assertEquals(session.branchId(), paired.get("branchId").asLong());
 
-        // The same code cannot be redeemed twice.
+        // The same code cannot be redeemed twice, and the response does not say why.
         JsonNode reuse = pair(pairingCode, "Second Tablet", "ANDROID", HttpStatus.BAD_REQUEST);
-        assertTrue(reuse.get("message").asText().contains("already been used"));
+        assertEquals("Pairing code is invalid or has expired", reuse.get("message").asText());
 
         // The device token pulls only that branch's printer configuration.
         JsonNode config = deviceConfig(deviceToken, HttpStatus.OK);
@@ -192,7 +209,7 @@ class PrintingIntegrationTest {
         jdbc.update("UPDATE print_pairing_codes SET expires_at = now() - interval '1 minute' "
                 + "WHERE used_at IS NULL");
         assertTrue(pair(expiredCode, "Late Tablet", "ANDROID", HttpStatus.BAD_REQUEST)
-                .get("message").asText().contains("expired"));
+                .get("message").asText().contains("invalid or has expired"));
 
         // Revocation cuts the bridge off immediately.
         long deviceId = devices.get(0).get("id").asLong();
@@ -410,18 +427,9 @@ class PrintingIntegrationTest {
         String code = "P" + seq + Integer.toString((int) (System.currentTimeMillis() % 1296), 36)
                 .toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                map("storeCode", code,
-                        "storeName", "Printing Store " + code,
-                        "ownerName", "Store Owner",
-                        "email", "owner" + seq + "@test.local",
-                        "mobile", "9000000003",
-                        "address", "1 Test Street",
-                        "gstNumber", null,
-                        "state", "Karnataka",
-                        "username", username,
-                        "password", "Secret@123",
-                        "branchName", "Main Branch"), null, HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code, "Printing Store " + code,
+                "Store Owner", "owner" + seq + "@test.local", "9000000003", "1 Test Street",
+                null, "Karnataka", username, "Secret@123", "Main Branch"), false);
         return loginSession(code, username, "Secret@123");
     }
 

@@ -2,11 +2,9 @@ package com.itemmanagement.repository;
 
 import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.enums.StoreStatus;
-import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,8 +15,13 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
 
     Optional<Store> findByStoreCodeIgnoreCase(String storeCode);
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select s from Store s where s.id = :id")
+    /**
+     * Hibernate maps {@code PESSIMISTIC_WRITE} to {@code FOR NO KEY UPDATE} on
+     * PostgreSQL, which does not conflict with the {@code FOR KEY SHARE} taken
+     * by child inserts. The explicit clause is needed so locking a store really
+     * serialises every store-scoped write.
+     */
+    @Query(value = "SELECT * FROM stores WHERE id = :id FOR UPDATE", nativeQuery = true)
     Optional<Store> findByIdForUpdate(@Param("id") Long id);
 
     boolean existsByStoreCodeIgnoreCase(String storeCode);

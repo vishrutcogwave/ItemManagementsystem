@@ -32,20 +32,52 @@ public class AuditService {
         persist(storeId, userId, username, action, entityType, entityId, details);
     }
 
+    /**
+     * Writes an audit entry inside the caller's transaction and forces the insert
+     * immediately, so a failure propagates and rolls the caller back. Used by
+     * destructive operations that must not commit without their audit record.
+     */
+    public void logRequired(String action, String entityType, Long entityId, String details) {
+        AuthUser user = TenantContext.user();
+        persistRequired(user.storeId(), user.userId(), user.username(), action, entityType, entityId, details);
+    }
+
+    /**
+     * Required-audit variant with an explicit actor, used when the audited
+     * change belongs to a different scope than the caller (platform
+     * administrators managing store accounts, or unauthenticated print bridges
+     * pairing with a store). Joins the caller's transaction so the business
+     * change and its audit record commit or roll back together.
+     */
+    public void logRequiredFor(Long storeId, Long userId, String username,
+                               String action, String entityType, Long entityId, String details) {
+        persistRequired(storeId, userId, username, action, entityType, entityId, details);
+    }
+
+    private void persistRequired(Long storeId, Long userId, String username,
+                                 String action, String entityType, Long entityId, String details) {
+        auditLogRepository.saveAndFlush(entry(storeId, userId, username, action, entityType, entityId, details));
+    }
+
     private void persist(Long storeId, Long userId, String username,
                          String action, String entityType, Long entityId, String details) {
         try {
-            auditLogRepository.save(AuditLog.builder()
-                    .storeId(storeId)
-                    .userId(userId)
-                    .username(username)
-                    .action(action)
-                    .entityType(entityType)
-                    .entityId(entityId)
-                    .details(details != null && details.length() > 1000 ? details.substring(0, 1000) : details)
-                    .build());
+            auditLogRepository.save(entry(storeId, userId, username, action, entityType, entityId, details));
         } catch (Exception e) {
-            log.warn("Audit log write failed: {}", e.getMessage());
+            log.warn("Audit log write failed: {}", e.getClass().getSimpleName());
         }
+    }
+
+    private AuditLog entry(Long storeId, Long userId, String username,
+                           String action, String entityType, Long entityId, String details) {
+        return AuditLog.builder()
+                .storeId(storeId)
+                .userId(userId)
+                .username(username)
+                .action(action)
+                .entityType(entityType)
+                .entityId(entityId)
+                .details(details != null && details.length() > 1000 ? details.substring(0, 1000) : details)
+                .build();
     }
 }

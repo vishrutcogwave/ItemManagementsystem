@@ -13,6 +13,7 @@ import com.itemmanagement.repository.PermissionRepository;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.PasswordPolicy;
+import com.itemmanagement.security.PlatformPolicy;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
 import com.itemmanagement.util.Pagination;
@@ -74,7 +75,7 @@ public class UserService {
                 .roles(new HashSet<>(Set.of(role)))
                 .branches(branches)
                 .build());
-        auditService.log("CREATE", "USER", user.getId(), "Created user " + user.getUsername());
+        auditService.logRequired("CREATE", "USER", user.getId(), "Created user " + user.getUsername());
         return toResponse(user);
     }
 
@@ -84,6 +85,10 @@ public class UserService {
         User user = find(id, storeId);
         Role role = role(storeId, request.roleId());
         Set<Branch> branches = branches(storeId, request.branchIds(), role);
+        // Branch scope is taken from the token, so a change to roles or branches
+        // must invalidate existing tokens instead of waiting for them to expire.
+        boolean authorizationChanged = !roleIdSet(user.getRoles()).equals(Set.of(role.getId()))
+                || !branchIdSet(user.getBranches()).equals(branchIdSet(branches));
         if (request.status() == StoreStatus.INACTIVE && user.getId().equals(TenantContext.userId())) {
             throw ApiException.badRequest("You cannot deactivate your own account");
         }
@@ -103,11 +108,15 @@ public class UserService {
             user.setPasswordHash(passwordEncoder.encode(request.password()));
             user.setMustChangePassword(true);
             user.setTokenVersion(user.getTokenVersion() + 1);
+        } else if (authorizationChanged) {
+            user.setTokenVersion(user.getTokenVersion() + 1);
         }
         userRepository.save(user);
-        auditService.log("UPDATE", "USER", userIdSafe(user),
+        auditService.logRequired("UPDATE", "USER", userIdSafe(user),
                 "Updated user " + user.getUsername()
-                        + (passwordChangedByAdmin ? "; password reset by an administrator and change forced" : ""));
+                        + (passwordChangedByAdmin ? "; password reset by an administrator and change forced" : "")
+                        + (authorizationChanged && !passwordChangedByAdmin
+                                ? "; access scope changed and existing sessions were invalidated" : ""));
         return toResponse(user);
     }
 
@@ -116,11 +125,16 @@ public class UserService {
         Long storeId = TenantContext.storeId();
         User user = find(id, storeId);
         Set<Branch> branches = branches(storeId, branchIds, null);
+        boolean branchesChanged = !branchIdSet(user.getBranches()).equals(branchIdSet(branches));
         user.getBranches().clear();
         user.getBranches().addAll(branches);
+        if (branchesChanged) {
+            user.setTokenVersion(user.getTokenVersion() + 1);
+        }
         userRepository.save(user);
-        auditService.log("ASSIGN_BRANCHES", "USER", userIdSafe(user),
-                "Assigned " + branches.size() + " branch(es) to " + user.getUsername());
+        auditService.logRequired("ASSIGN_BRANCHES", "USER", userIdSafe(user),
+                "Assigned " + branches.size() + " branch(es) to " + user.getUsername()
+                        + (branchesChanged ? "; existing sessions were invalidated" : ""));
         return toResponse(user);
     }
 
@@ -133,7 +147,7 @@ public class UserService {
         }
         user.setStatus(status);
         userRepository.save(user);
-        auditService.log(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "USER",
+        auditService.logRequired(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "USER",
                 userIdSafe(user), "User status changed to " + status);
         return toResponse(user);
     }
@@ -142,13 +156,16 @@ public class UserService {
     public List<RoleResponse> roles() {
         Long storeId = TenantContext.storeId();
         return roleRepository.findByStoreIdOrderByName(storeId).stream()
+                .filter(role -> !PlatformPolicy.isReservedRoleCode(role.getCode()))
                 .map(this::roleResponse)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<RoleResponse.PermissionResponse> permissions() {
+        boolean storeScoped = TenantContext.storeId() != null;
         return permissionRepository.findAllByOrderByCode().stream()
+                .filter(permission -> !storeScoped || !PlatformPolicy.isPlatformOnlyPermission(permission.getCode()))
                 .map(this::permissionResponse)
                 .toList();
     }
@@ -157,11 +174,14 @@ public class UserService {
     public RoleResponse createRole(RoleResponse.Request request) {
         Long storeId = TenantContext.storeId();
         String code = request.code().trim().toUpperCase(Locale.ROOT);
+        if (PlatformPolicy.isReservedRoleCode(code)) {
+            throw ApiException.forbidden(
+                    "Role codes starting with PLATFORM_ are reserved for platform administrators");
+        }
         if (roleRepository.existsByStoreIdAndCode(storeId, code)) {
             throw ApiException.conflict("A role with this code already exists");
         }
-        Set<Permission> permissions = new HashSet<>(permissionRepository.findByCodeIn(
-                request.permissionCodes() == null ? List.of() : request.permissionCodes()));
+        Set<Permission> permissions = storePermissions(request.permissionCodes());
         Role role = roleRepository.save(Role.builder()
                 .storeId(storeId)
                 .code(code)
@@ -170,7 +190,7 @@ public class UserService {
                 .isSystem(false)
                 .permissions(permissions)
                 .build());
-        auditService.log("CREATE", "ROLE", role.getId(), "Created role " + role.getName());
+        auditService.logRequired("CREATE", "ROLE", role.getId(), "Created role " + role.getName());
         return roleResponse(role);
     }
 
@@ -179,14 +199,34 @@ public class UserService {
         Long storeId = TenantContext.storeId();
         Role role = roleRepository.findByIdAndStoreId(id, storeId)
                 .orElseThrow(() -> ApiException.notFound("Role not found"));
+        if (PlatformPolicy.isReservedRoleCode(role.getCode())) {
+            throw ApiException.forbidden("Platform roles can only be managed by platform administrators");
+        }
+        if (PlatformPolicy.isReservedRoleCode(request.code())) {
+            throw ApiException.forbidden(
+                    "Role codes starting with PLATFORM_ are reserved for platform administrators");
+        }
         role.setName(request.name().trim());
         role.setDescription(blankToNull(request.description()));
         role.getPermissions().clear();
-        role.getPermissions().addAll(permissionRepository.findByCodeIn(
-                request.permissionCodes() == null ? List.of() : request.permissionCodes()));
+        role.getPermissions().addAll(storePermissions(request.permissionCodes()));
         roleRepository.save(role);
-        auditService.log("UPDATE", "ROLE", role.getId(), "Updated role permissions for " + role.getName());
+        auditService.logRequired("UPDATE", "ROLE", role.getId(), "Updated role permissions for " + role.getName());
         return roleResponse(role);
+    }
+
+    private Set<Permission> storePermissions(List<String> permissionCodes) {
+        List<String> codes = permissionCodes == null ? List.of() : permissionCodes;
+        String platformOnly = codes.stream()
+                .filter(PlatformPolicy::isPlatformOnlyPermission)
+                .findFirst()
+                .orElse(null);
+        if (platformOnly != null) {
+            throw ApiException.forbidden(
+                    "Permission " + platformOnly.toUpperCase(Locale.ROOT)
+                            + " is reserved for platform administrators");
+        }
+        return new HashSet<>(permissionRepository.findByCodeIn(codes));
     }
 
     private Set<Branch> branches(Long storeId, List<Long> branchIds, Role role) {
@@ -206,13 +246,25 @@ public class UserService {
     }
 
     private Role role(Long storeId, Long roleId) {
-        return roleRepository.findByIdAndStoreId(roleId, storeId)
+        Role role = roleRepository.findByIdAndStoreId(roleId, storeId)
                 .orElseThrow(() -> ApiException.badRequest("Select a valid role for this store"));
+        if (PlatformPolicy.isReservedRoleCode(role.getCode())) {
+            throw ApiException.forbidden("Platform roles cannot be assigned to store users");
+        }
+        return role;
     }
 
     private User find(Long id, Long storeId) {
         return userRepository.findByIdAndStoreId(id, storeId)
                 .orElseThrow(() -> ApiException.notFound("User not found"));
+    }
+
+    private Set<Long> roleIdSet(Set<Role> roles) {
+        return roles.stream().map(Role::getId).collect(java.util.stream.Collectors.toSet());
+    }
+
+    private Set<Long> branchIdSet(Set<Branch> branches) {
+        return branches.stream().map(Branch::getId).collect(java.util.stream.Collectors.toSet());
     }
 
     private UserResponse toResponse(User user) {
@@ -230,6 +282,8 @@ public class UserService {
 
     private RoleResponse roleResponse(Role role) {
         List<RoleResponse.PermissionResponse> permissions = role.getPermissions().stream()
+                .filter(permission -> role.getStoreId() == null
+                        || !PlatformPolicy.isPlatformOnlyPermission(permission.getCode()))
                 .sorted(Comparator.comparing(Permission::getCode))
                 .map(this::permissionResponse)
                 .toList();

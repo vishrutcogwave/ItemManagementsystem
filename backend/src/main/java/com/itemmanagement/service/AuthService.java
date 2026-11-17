@@ -3,8 +3,6 @@ package com.itemmanagement.service;
 import com.itemmanagement.dto.auth.AuthResponse;
 import com.itemmanagement.dto.auth.ChangePasswordRequest;
 import com.itemmanagement.dto.auth.LoginRequest;
-import com.itemmanagement.dto.auth.RegisterStoreRequest;
-import com.itemmanagement.dto.common.MessageResponse;
 import com.itemmanagement.entity.Branch;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.Store;
@@ -18,6 +16,7 @@ import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.JwtService;
 import com.itemmanagement.security.LoginAttemptService;
 import com.itemmanagement.security.PasswordPolicy;
+import com.itemmanagement.security.PlatformPolicy;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.security.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
@@ -42,10 +41,19 @@ public class AuthService {
 
     private static final String PLATFORM_CODE = "PLATFORM";
 
+    /**
+     * Fixed BCrypt hash (cost 10, matching the configured encoder) verified when
+     * the store or user does not exist. Comparing against it keeps the response
+     * time of unknown accounts in line with a real failed password check so the
+     * login endpoint does not leak which usernames exist. It is not the hash of
+     * any account and its plaintext is never used.
+     */
+    static final String DUMMY_PASSWORD_HASH =
+            "$2a$10$KV3X8XoseGT5c/5JwEmnkenGY2h/klUV9JcluMcIcKXetKZ8aajAC";
+
     private final StoreRepository storeRepository;
     private final BranchRepository branchRepository;
     private final UserRepository userRepository;
-    private final StoreProvisioningService provisioningService;
     private final PasswordEncoder passwordEncoder;
     private final PasswordPolicy passwordPolicy;
     private final JwtService jwtService;
@@ -57,6 +65,7 @@ public class AuthService {
     public AuthResponse login(LoginRequest request, String clientAddress, String currentToken) {
         String storeCode = request.storeCode().trim();
         String attemptKey = loginAttemptService.key(storeCode, request.username(), clientAddress);
+        loginAttemptService.checkClientAllowed(clientAddress);
         loginAttemptService.checkAllowed(attemptKey);
 
         User user;
@@ -74,22 +83,26 @@ public class AuthService {
             }
         } catch (ApiException ex) {
             if (ex.getStatus() == HttpStatus.UNAUTHORIZED) {
+                // Spend the same BCrypt work as a real password check so an
+                // unknown store or username cannot be identified by timing.
+                passwordEncoder.matches(request.password(), DUMMY_PASSWORD_HASH);
                 // Blacklist any active token that was used to make this failed attempt
                 blacklistTokensAfterFailedLogin(currentToken);
-                loginAttemptService.recordFailure(attemptKey);
+                recordFailure(attemptKey, clientAddress);
             }
             throw ex;
         }
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-            loginAttemptService.recordFailure(attemptKey);
+            recordFailure(attemptKey, clientAddress);
             throw ApiException.unauthorized("Invalid store code, username or password");
         }
         if (user.getStatus() != StoreStatus.ACTIVE) {
             throw ApiException.forbidden("This user account is inactive");
         }
-        if (store == null && user.getRoles().stream().noneMatch(r -> StoreProvisioningService.PLATFORM_ADMIN.equals(r.getCode()))) {
-            loginAttemptService.recordFailure(attemptKey);
+        if (store == null && user.getRoles().stream().noneMatch(r ->
+                r.getStoreId() == null && StoreProvisioningService.PLATFORM_ADMIN.equals(r.getCode()))) {
+            recordFailure(attemptKey, clientAddress);
             throw ApiException.unauthorized("Invalid store code, username or password");
         }
         if (store != null) {
@@ -162,20 +175,10 @@ public class AuthService {
         blacklistToken(currentToken);
         Store store = user.getStoreId() == null ? null
                 : storeRepository.findById(user.getStoreId()).orElse(null);
-        auditService.logFor(user.getStoreId(), user.getId(), user.getUsername(),
+        auditService.logRequiredFor(user.getStoreId(), user.getId(), user.getUsername(),
                 "PASSWORD_CHANGE", "USER", user.getId(),
                 "User changed their own password; all other sessions were invalidated");
         return buildSession(user, store, true);
-    }
-
-    @Transactional
-    public MessageResponse registerStore(RegisterStoreRequest request) {
-        StoreProvisioningService.ProvisionedStore provisioned = provisioningService.createStore(request, false);
-        auditService.logFor(provisioned.store().getId(), provisioned.owner().getId(),
-                provisioned.owner().getUsername(), "REGISTER_STORE", "STORE",
-                provisioned.store().getId(), "Store registered: " + provisioned.store().getStoreName());
-        return new MessageResponse("Store registered successfully. You can now sign in with store code "
-                + provisioned.store().getStoreCode() + ".");
     }
 
     private User findStoreUser(Long storeId, String login) {
@@ -191,12 +194,15 @@ public class AuthService {
         if (roles.isEmpty()) {
             throw ApiException.forbidden("No role is assigned to this account");
         }
+        boolean platformAdmin = store == null && user.getRoles().stream()
+                .anyMatch(role -> role.getStoreId() == null
+                        && StoreProvisioningService.PLATFORM_ADMIN.equals(role.getCode()));
         Set<String> permissions = user.getRoles().stream()
                 .flatMap(role -> role.getPermissions().stream())
                 .map(permission -> permission.getCode())
+                .filter(code -> platformAdmin || !PlatformPolicy.isPlatformOnlyPermission(code))
                 .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
 
-        boolean platformAdmin = store == null;
         boolean allBranches = !platformAdmin && (roles.contains(StoreProvisioningService.STORE_OWNER)
                 || roles.contains(StoreProvisioningService.STORE_ADMIN));
 
@@ -227,7 +233,8 @@ public class AuthService {
                 roles,
                 permissions,
                 branchIds,
-                allBranches
+                allBranches,
+                platformAdmin
         );
 
         String token = issueToken ? jwtService.generate(principal, user.getTokenVersion()) : null;
@@ -254,6 +261,11 @@ public class AuthService {
                 platformAdmin,
                 user.isMustChangePassword()
         );
+    }
+
+    private void recordFailure(String attemptKey, String clientAddress) {
+        loginAttemptService.recordFailure(attemptKey);
+        loginAttemptService.recordClientFailure(clientAddress);
     }
 
     private void blacklistToken(String token) {

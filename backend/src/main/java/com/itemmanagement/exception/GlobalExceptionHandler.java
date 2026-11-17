@@ -1,6 +1,7 @@
 package com.itemmanagement.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +15,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -44,9 +46,32 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        logIntegrityViolation(ex);
         return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
                 "This change conflicts with existing data. Please check codes, names or connected records."));
+    }
+
+    /**
+     * The database message can quote the rejected values (usernames, emails), so
+     * only the exception type, SQLState and constraint name are logged. Those
+     * identify the violated rule without copying personal data into log files.
+     */
+    private void logIntegrityViolation(DataIntegrityViolationException ex) {
+        String sqlState = null;
+        String constraint = null;
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (sqlState == null && cause instanceof SQLException sqlException) {
+                sqlState = sqlException.getSQLState();
+            }
+            if (constraint == null && cause instanceof ConstraintViolationException violation) {
+                constraint = violation.getConstraintName();
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        log.warn("Data integrity violation: type={}, sqlState={}, constraint={}",
+                ex.getMostSpecificCause().getClass().getSimpleName(), sqlState, constraint);
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

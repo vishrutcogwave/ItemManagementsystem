@@ -1,6 +1,8 @@
 package com.itemmanagement.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.itemmanagement.entity.Permission;
+import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.repository.StoreRepository;
@@ -26,6 +28,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -78,10 +81,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                                 "Change your password before continuing");
                         return;
                     }
-                    AuthUser user = jwtService.toAuthUser(claims);
+                    AuthUser user = principal(account, claims);
                     List<SimpleGrantedAuthority> authorities = new ArrayList<>();
-                    user.roles().forEach(role -> authorities.add(new SimpleGrantedAuthority("ROLE_" + role)));
-                    user.permissions().forEach(permission -> authorities.add(new SimpleGrantedAuthority(permission)));
+                    user.roles().forEach(role -> {
+                        if (user.platformAdmin() || !PlatformPolicy.isReservedRoleCode(role)) {
+                            authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+                        }
+                    });
+                    user.permissions().forEach(permission -> {
+                        if (user.platformAdmin() || !PlatformPolicy.isPlatformOnlyPermission(permission)) {
+                            authorities.add(new SimpleGrantedAuthority(permission));
+                        }
+                    });
+                    if (user.platformAdmin()) {
+                        authorities.add(new SimpleGrantedAuthority(PlatformPolicy.TRUSTED_AUTHORITY));
+                    }
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(user, token, authorities);
                     SecurityContextHolder.getContext().setAuthentication(authentication);
@@ -123,6 +137,45 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 .map(store -> store.getStatus() == StoreStatus.ACTIVE)
                 .orElse(false);
         return storeActive ? account : null;
+    }
+
+    /**
+     * Rebuilds the authenticated principal from the persisted account so roles,
+     * permissions and platform identity cannot be inflated by token claims or by
+     * a store role that reuses a reserved platform code.
+     */
+    private AuthUser principal(User account, Claims claims) {
+        Set<String> roles = account.getRoles().stream()
+                .map(Role::getCode)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> permissions = account.getRoles().stream()
+                .flatMap(role -> role.getPermissions().stream())
+                .map(Permission::getCode)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        boolean platformAdmin = account.getStoreId() == null && account.getRoles().stream()
+                .anyMatch(role -> role.getStoreId() == null
+                        && PlatformPolicy.PLATFORM_ADMIN_ROLE.equals(role.getCode()));
+        Set<Long> branchIds = claims.get("branchIds") instanceof List<?> list
+                ? list.stream()
+                        .filter(Number.class::isInstance)
+                        .map(value -> ((Number) value).longValue())
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet())
+                : Set.of();
+        return new AuthUser(
+                account.getId(),
+                account.getStoreId(),
+                account.getUsername(),
+                account.getFullName(),
+                account.getEmail(),
+                account.getMobile(),
+                claims.get("storeCode", String.class),
+                claims.get("storeName", String.class),
+                roles,
+                permissions,
+                branchIds,
+                Boolean.TRUE.equals(claims.get("allBranches")),
+                platformAdmin
+        );
     }
 
     private boolean isPasswordChangeExempt(HttpServletRequest request) {

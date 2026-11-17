@@ -8,14 +8,11 @@ import com.itemmanagement.dto.subscription.SubscriptionSummaryResponse;
 import com.itemmanagement.entity.PlatformSettings;
 import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.SubscriptionChangeHistory;
-import com.itemmanagement.entity.User;
-import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.PlatformSettingsRepository;
 import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.SubscriptionChangeHistoryRepository;
-import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +39,6 @@ public class SubscriptionService {
     private final BranchRepository branchRepository;
     private final SubscriptionChangeHistoryRepository historyRepository;
     private final PlatformSettingsRepository platformSettingsRepository;
-    private final UserRepository userRepository;
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
@@ -123,7 +119,7 @@ public class SubscriptionService {
                 .note(blankToNull(request.note()))
                 .build());
 
-        auditService.log("UPDATE_SUBSCRIPTION", "STORE", storeId,
+        auditService.logRequired("UPDATE_SUBSCRIPTION", "STORE", storeId,
                 "Subscription " + previousStart + ".." + previousEnd + " -> "
                         + request.startDate() + ".." + request.endDate()
                         + ", branch limit " + previousLimit + " -> " + request.maxBranches());
@@ -136,14 +132,6 @@ public class SubscriptionService {
         String email = settings == null ? null : blankToNull(settings.getContactEmail());
         String phone = settings == null ? null : blankToNull(settings.getContactPhone());
         Instant updatedAt = settings == null ? null : settings.getUpdatedAt();
-
-        if (email == null || phone == null) {
-            User fallback = primaryPlatformAdmin();
-            if (fallback != null) {
-                if (email == null) email = blankToNull(fallback.getEmail());
-                if (phone == null) phone = blankToNull(fallback.getMobile());
-            }
-        }
         return new PlatformContactResponse(email == null ? "" : email, phone == null ? "" : phone, updatedAt);
     }
 
@@ -154,7 +142,7 @@ public class SubscriptionService {
         settings.setContactEmail(request.contactEmail().trim());
         settings.setContactPhone(request.contactPhone().trim());
         platformSettingsRepository.save(settings);
-        auditService.log("UPDATE", "PLATFORM_SETTINGS", 1L,
+        auditService.logRequired("UPDATE", "PLATFORM_SETTINGS", 1L,
                 "Platform contact updated: " + settings.getContactEmail() + " / " + settings.getContactPhone());
         return new PlatformContactResponse(settings.getContactEmail(), settings.getContactPhone(),
                 settings.getUpdatedAt());
@@ -184,16 +172,6 @@ public class SubscriptionService {
 
     private boolean isExpired(Store store, LocalDate today) {
         return store.getSubscriptionEndDate().isBefore(today);
-    }
-
-    private User primaryPlatformAdmin() {
-        List<User> admins = userRepository.findPlatformAdmins();
-        return admins.stream()
-                .filter(user -> user.getStatus() == StoreStatus.ACTIVE)
-                .filter(user -> "platform".equalsIgnoreCase(user.getUsername()))
-                .findFirst()
-                .or(() -> admins.stream().filter(user -> user.getStatus() == StoreStatus.ACTIVE).findFirst())
-                .orElse(admins.isEmpty() ? null : admins.get(0));
     }
 
     private Store findStore(Long storeId) {

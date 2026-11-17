@@ -1,11 +1,13 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
+import com.itemmanagement.service.StoreProvisioningService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -61,6 +63,9 @@ class PlatformAccountIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     private volatile String cachedPlatformToken;
 
@@ -264,17 +269,10 @@ class PlatformAccountIntegrationTest {
         String code = "P" + prefix.charAt(0) + seq
                 + Integer.toString((int) (System.currentTimeMillis() % 1296), 36).toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                map("storeCode", code,
-                        "storeName", "Platform Account Store " + code,
-                        "ownerName", "Store Owner",
-                        "email", "owner" + seq + "@test.local",
-                        "mobile", "9000000007",
-                        "address", "1 Test Street",
-                        "state", "Karnataka",
-                        "username", username,
-                        "password", "Secret@123",
-                        "branchName", "Main Branch"), null, HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code,
+                "Platform Account Store " + code, "Store Owner", "owner" + seq + "@test.local",
+                "9000000007", "1 Test Street", null, "Karnataka", username, "Secret@123",
+                "Main Branch"), false);
         return loginSession(code, username, "Secret@123");
     }
 

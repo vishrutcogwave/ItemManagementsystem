@@ -94,7 +94,7 @@ public class PlatformAccountService {
         }
         user.setUsername(username);
         userRepository.save(user);
-        auditService.logFor(user.getStoreId(), actor.userId(), actor.username(),
+        auditService.logRequiredFor(user.getStoreId(), actor.userId(), actor.username(),
                 "USERNAME_UPDATE", "USER", user.getId(),
                 "Username changed from '" + previous + "' to '" + username + "'");
         return toResponse(user, storeRepository.findById(user.getStoreId()).orElse(null));
@@ -115,7 +115,7 @@ public class PlatformAccountService {
         }
         user.setStatus(status);
         userRepository.save(user);
-        auditService.logFor(user.getStoreId(), actor.userId(), actor.username(),
+        auditService.logRequiredFor(user.getStoreId(), actor.userId(), actor.username(),
                 status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "USER", user.getId(),
                 "Store login account " + user.getUsername() + " set to " + status);
         return toResponse(user, storeRepository.findById(user.getStoreId()).orElse(null));
@@ -134,7 +134,7 @@ public class PlatformAccountService {
         user.setTokenVersion(user.getTokenVersion() + 1);
         userRepository.save(user);
         Store store = storeRepository.findById(user.getStoreId()).orElse(null);
-        auditService.logFor(user.getStoreId(), actor.userId(), actor.username(),
+        auditService.logRequiredFor(user.getStoreId(), actor.userId(), actor.username(),
                 "PASSWORD_RESET", "USER", user.getId(),
                 "Temporary password generated for " + user.getUsername()
                         + "; a password change is forced at the next sign-in and existing sessions were invalidated");

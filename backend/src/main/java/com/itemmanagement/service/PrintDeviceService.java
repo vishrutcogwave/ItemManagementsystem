@@ -17,6 +17,7 @@ import com.itemmanagement.repository.PrintDeviceRepository;
 import com.itemmanagement.repository.PrintPairingCodeRepository;
 import com.itemmanagement.repository.StoreRepository;
 import com.itemmanagement.repository.UserRepository;
+import com.itemmanagement.security.LoginAttemptService;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PrintingTokens;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,8 @@ import java.util.Locale;
 public class PrintDeviceService {
 
     private static final Duration PAIRING_CODE_TTL = Duration.ofMinutes(10);
+    private static final String GENERIC_PAIRING_FAILURE =
+            "Pairing code is invalid or has expired";
 
     private final PrintPairingCodeRepository pairingCodeRepository;
     private final PrintDeviceRepository deviceRepository;
@@ -41,6 +44,7 @@ public class PrintDeviceService {
     private final UserRepository userRepository;
     private final PrinterService printerService;
     private final AuditService auditService;
+    private final LoginAttemptService loginAttemptService;
 
     @Transactional
     public PairingCodeResponse createPairingCode(Long branchId) {
@@ -57,25 +61,37 @@ public class PrintDeviceService {
                 .createdBy(TenantContext.userId())
                 .expiresAt(expiresAt)
                 .build());
-        auditService.log("PAIRING_CODE", "PRINT_DEVICE", null,
+        auditService.logRequired("PAIRING_CODE", "PRINT_DEVICE", null,
                 "Generated pairing code for " + branch.getBranchName());
         return new PairingCodeResponse(code, branch.getId(), expiresAt);
     }
 
     /**
      * Called by a print bridge itself, so this endpoint has no JWT. The
-     * single-use code generated above is the authorization proof.
+     * single-use code generated above is the authorization proof. Failed
+     * redemptions are rate-limited per trusted client address and always return
+     * the same message so the code's existence, expiry or use cannot be probed.
      */
     @Transactional
-    public DevicePairResponse pair(DevicePairRequest request) {
+    public DevicePairResponse pair(DevicePairRequest request, String clientAddress) {
+        loginAttemptService.checkPairingAllowed(clientAddress);
+        try {
+            return pairInternal(request);
+        } catch (ApiException ex) {
+            loginAttemptService.recordPairingFailure(clientAddress);
+            throw ApiException.badRequest(GENERIC_PAIRING_FAILURE);
+        }
+    }
+
+    private DevicePairResponse pairInternal(DevicePairRequest request) {
         String codeHash = PrintingTokens.sha256(PrintingTokens.normalizeCode(request.code()));
         PrintPairingCode pairing = pairingCodeRepository.findForUpdateByCodeHash(codeHash)
-                .orElseThrow(() -> ApiException.badRequest("Pairing code is invalid or has expired"));
+                .orElseThrow(() -> ApiException.badRequest(GENERIC_PAIRING_FAILURE));
         if (pairing.getUsedAt() != null) {
-            throw ApiException.badRequest("This pairing code has already been used. Generate a new code.");
+            throw ApiException.badRequest(GENERIC_PAIRING_FAILURE);
         }
         if (!pairing.getExpiresAt().isAfter(Instant.now())) {
-            throw ApiException.badRequest("Pairing code has expired. Generate a new code.");
+            throw ApiException.badRequest(GENERIC_PAIRING_FAILURE);
         }
         PrintDevicePlatform platform = parsePlatform(request.platform());
         Branch branch = branchRepository.findByIdAndStoreId(pairing.getBranchId(), pairing.getStoreId())
@@ -99,7 +115,7 @@ public class PrintDeviceService {
         pairing.setUsedAt(Instant.now());
         pairingCodeRepository.save(pairing);
 
-        auditService.logFor(store.getId(), pairing.getCreatedBy(), username,
+        auditService.logRequiredFor(store.getId(), pairing.getCreatedBy(), username,
                 "PAIR", "PRINT_DEVICE", device.getId(),
                 "Paired " + platform + " device " + device.getDeviceName() + " for " + branch.getBranchName());
 
@@ -167,7 +183,7 @@ public class PrintDeviceService {
         TenantContext.requireBranch(device.getBranchId());
         device.setStatus(PrintDeviceStatus.REVOKED);
         deviceRepository.save(device);
-        auditService.log("REVOKE", "PRINT_DEVICE", device.getId(),
+        auditService.logRequired("REVOKE", "PRINT_DEVICE", device.getId(),
                 "Revoked print bridge " + device.getDeviceName());
         return toResponse(device);
     }

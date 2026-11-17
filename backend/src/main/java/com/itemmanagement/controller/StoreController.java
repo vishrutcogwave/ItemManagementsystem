@@ -8,11 +8,14 @@ import com.itemmanagement.dto.subscription.SubscriptionHistoryResponse;
 import com.itemmanagement.dto.subscription.SubscriptionRequest;
 import com.itemmanagement.dto.subscription.SubscriptionSummaryResponse;
 import com.itemmanagement.entity.enums.StoreStatus;
+import com.itemmanagement.security.PlatformPolicy;
+import com.itemmanagement.service.StoreDeletionService;
 import com.itemmanagement.service.StoreService;
 import com.itemmanagement.service.SubscriptionService;
 import com.itemmanagement.util.PageResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,10 +27,11 @@ import java.util.List;
 public class StoreController {
 
     private final StoreService storeService;
+    private final StoreDeletionService storeDeletionService;
     private final SubscriptionService subscriptionService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public PageResponse<StoreResponse> list(@RequestParam(required = false) String search,
                                             @RequestParam(required = false) StoreStatus status,
                                             @RequestParam(defaultValue = "0") int page,
@@ -36,9 +40,16 @@ public class StoreController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public StoreResponse create(@Valid @RequestBody RegisterStoreRequest request) {
         return storeService.create(request);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
+    public void delete(@PathVariable Long id, @RequestParam String confirmName) {
+        storeDeletionService.deleteStore(id, confirmName);
     }
 
     @GetMapping("/current")
@@ -54,38 +65,38 @@ public class StoreController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public StoreResponse get(@PathVariable Long id) {
         return storeService.getForPlatform(id);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public StoreResponse update(@PathVariable Long id, @Valid @RequestBody UpdateStoreRequest request) {
         return storeService.platformUpdate(id, request);
     }
 
     @PutMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public StoreResponse updateStatus(@PathVariable Long id, @Valid @RequestBody StatusRequest request) {
         return storeService.updateStatus(id, request.status());
     }
 
     @GetMapping("/{id}/subscription")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public SubscriptionSummaryResponse subscription(@PathVariable Long id) {
         return subscriptionService.platformStoreSummary(id);
     }
 
     @PutMapping("/{id}/subscription")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public SubscriptionSummaryResponse updateSubscription(@PathVariable Long id,
                                                           @Valid @RequestBody SubscriptionRequest request) {
         return subscriptionService.updateForPlatform(id, request);
     }
 
     @GetMapping("/{id}/subscription/history")
-    @PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+    @PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
     public List<SubscriptionHistoryResponse> subscriptionHistory(@PathVariable Long id) {
         return subscriptionService.history(id);
     }

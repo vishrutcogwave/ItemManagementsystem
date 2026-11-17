@@ -7,6 +7,7 @@ import com.itemmanagement.dto.platform.PlatformAccountRequests.UsernameUpdateReq
 import com.itemmanagement.dto.platform.PlatformAccountResponse;
 import com.itemmanagement.dto.platform.PlatformPasswordResetResponse;
 import com.itemmanagement.entity.enums.StoreStatus;
+import com.itemmanagement.security.PlatformPolicy;
 import com.itemmanagement.service.PlatformAccountService;
 import com.itemmanagement.util.PageResponse;
 import jakarta.validation.Valid;
@@ -22,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/platform/accounts")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+@PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
 public class PlatformAccountController {
 
     private final PlatformAccountService accountService;

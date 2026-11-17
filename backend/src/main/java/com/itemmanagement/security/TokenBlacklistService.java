@@ -57,7 +57,7 @@ public class TokenBlacklistService {
             return !expiry.isBefore(Instant.now());
         } catch (Exception e) {
             // Fail closed: an unreadable blacklist must not authenticate a token.
-            log.warn("Unable to read the token revocation list: {}", e.getMessage());
+            log.warn("Unable to read the token revocation list: {}", e.getClass().getSimpleName());
             return true;
         }
     }

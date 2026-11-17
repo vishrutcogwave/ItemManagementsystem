@@ -14,10 +14,11 @@ public record AuthUser(
         Set<String> roles,
         Set<String> permissions,
         Set<Long> branchIds,
-        boolean allBranches
+        boolean allBranches,
+        boolean platformAdmin
 ) {
     public boolean isPlatformAdmin() {
-        return roles.contains("PLATFORM_ADMIN");
+        return platformAdmin;
     }
 
     public boolean hasPermission(String permission) {

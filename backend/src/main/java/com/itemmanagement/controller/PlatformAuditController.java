@@ -1,6 +1,7 @@
 package com.itemmanagement.controller;
 
 import com.itemmanagement.dto.platform.AuditLogResponse;
+import com.itemmanagement.security.PlatformPolicy;
 import com.itemmanagement.service.PlatformAuditService;
 import com.itemmanagement.util.PageResponse;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/platform/audit-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('PLATFORM_MANAGE')")
+@PreAuthorize(PlatformPolicy.PLATFORM_ADMIN_ONLY)
 public class PlatformAuditController {
 
     private final PlatformAuditService auditService;

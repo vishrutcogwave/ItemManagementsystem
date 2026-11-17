@@ -4,6 +4,7 @@ import com.itemmanagement.dto.printing.DeviceConfigResponse;
 import com.itemmanagement.dto.printing.DevicePairRequest;
 import com.itemmanagement.dto.printing.DevicePairResponse;
 import com.itemmanagement.service.PrintDeviceService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -23,8 +24,10 @@ public class PrintDeviceController {
     private final PrintDeviceService deviceService;
 
     @PostMapping("/devices/pair")
-    public DevicePairResponse pair(@Valid @RequestBody DevicePairRequest request) {
-        return deviceService.pair(request);
+    public DevicePairResponse pair(@Valid @RequestBody DevicePairRequest request,
+                                   HttpServletRequest httpRequest) {
+        // RemoteIpValve resolves the trusted client address for this request.
+        return deviceService.pair(request, httpRequest.getRemoteAddr());
     }
 
     @GetMapping("/device/config")

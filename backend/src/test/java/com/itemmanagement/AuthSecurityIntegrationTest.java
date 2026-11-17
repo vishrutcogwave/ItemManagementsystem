@@ -1,15 +1,18 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
+import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.JwtAuthFilter;
 import com.itemmanagement.security.JwtService;
 import com.itemmanagement.security.LoginAttemptService;
 import com.itemmanagement.security.TokenBlacklistService;
+import com.itemmanagement.service.StoreProvisioningService;
 import io.jsonwebtoken.Claims;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
@@ -47,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -97,6 +101,9 @@ class AuthSecurityIntegrationTest {
 
     @Autowired
     private JwtService jwtService;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     @Autowired
     private Environment environment;
@@ -371,7 +378,14 @@ class AuthSecurityIntegrationTest {
 
         List<String> actions = callList(HttpMethod.GET, "/api/platform/audit-logs/options", platform);
         assertTrue(actions.contains("LOGIN"));
-        assertTrue(actions.contains("REGISTER_STORE"));
+
+        // Store creation is now a platform-only audited action.
+        String createdCode = "AUDC" + SEQ.incrementAndGet();
+        call(HttpMethod.POST, "/api/stores",
+                registerPayload(createdCode, "Strong@123", "auditowner" + SEQ.get()),
+                platform, HttpStatus.OK);
+        actions = callList(HttpMethod.GET, "/api/platform/audit-logs/options", platform);
+        assertTrue(actions.contains("CREATE"));
 
         ResponseEntity<byte[]> exported = rest.exchange("/api/platform/audit-logs/export",
                 HttpMethod.GET, bearerOnly(platform), byte[].class);
@@ -418,8 +432,12 @@ class AuthSecurityIntegrationTest {
 
         ResponseEntity<JsonNode> version = rest.getForEntity("/api/version", JsonNode.class);
         assertEquals(HttpStatus.OK.value(), version.getStatusCode().value());
-        for (String field : List.of("name", "version", "artifact", "buildTime", "gitCommit", "javaVersion")) {
+        for (String field : List.of("name", "version")) {
             assertTrue(version.getBody().hasNonNull(field), "missing version field: " + field);
+        }
+        for (String field : List.of("artifact", "buildTime", "gitCommit", "javaVersion")) {
+            assertFalse(version.getBody().has(field),
+                    "public version response must not expose " + field);
         }
         assertTrue(headerContains(version, HttpHeaders.CACHE_CONTROL, "no-store"));
     }
@@ -440,21 +458,26 @@ class AuthSecurityIntegrationTest {
     }
 
     // ------------------------------------------------------------------
-    // K-27: the same password policy applies to registration and resets
+    // K-27: public registration is closed; the password policy still guards
+    // every store that is provisioned directly
     // ------------------------------------------------------------------
 
     @Test
-    void registrationRejectsWeakPasswordsWithTheSharedPolicy() {
-        for (String weak : List.of("password", "short1!", "alllowercase1!", "NoSpecial123")) {
-            ResponseEntity<JsonNode> rejected = rest.exchange("/api/auth/register-store",
-                    HttpMethod.POST, noAuth(registerPayload("WEAK" + SEQ.incrementAndGet(), weak)),
-                    JsonNode.class);
-            assertEquals(HttpStatus.BAD_REQUEST.value(), rejected.getStatusCode().value(),
-                    "password should be rejected: " + weak);
-        }
-        ResponseEntity<JsonNode> accepted = rest.exchange("/api/auth/register-store", HttpMethod.POST,
-                noAuth(registerPayload("PASS" + SEQ.incrementAndGet(), "Strong@123")), JsonNode.class);
-        assertEquals(HttpStatus.CREATED.value(), accepted.getStatusCode().value());
+    void publicStoreRegistrationIsPermanentlyDisabled() {
+        int seq = SEQ.incrementAndGet();
+        String code = "CLOSED" + seq;
+        ResponseEntity<JsonNode> rejected = rest.exchange("/api/auth/register-store",
+                HttpMethod.POST, noAuth(registerPayload(code, "Strong@123")), JsonNode.class);
+        assertEquals(HttpStatus.FORBIDDEN.value(), rejected.getStatusCode().value());
+        assertNotNull(rejected.getBody());
+        assertTrue(rejected.getBody().path("message").asText()
+                .contains("Public store registration is disabled"));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM stores WHERE store_code = ?", Integer.class, code));
+
+        ApiException weakPassword = assertThrows(ApiException.class, () -> provisioningService.createStore(
+                registerRequest("WEAK" + seq, "password", "owner" + seq), false));
+        assertEquals(HttpStatus.BAD_REQUEST.value(), weakPassword.getStatus().value());
     }
 
     // ------------------------------------------------------------------
@@ -521,11 +544,16 @@ class AuthSecurityIntegrationTest {
         String code = "A" + prefix.charAt(0) + seq
                 + Integer.toString((int) (System.currentTimeMillis() % 1296), 36).toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                registerPayload(code, "Secret@123", username), null, HttpStatus.CREATED);
+        provisioningService.createStore(registerRequest(code, "Secret@123", username), false);
         JsonNode auth = login(code, username, "Secret@123");
         return new StoreSession(auth.get("token").asText(), auth.at("/user/id").asLong(),
                 auth.at("/store/id").asLong(), auth.at("/branches/0/id").asLong(), code, username);
+    }
+
+    private RegisterStoreRequest registerRequest(String code, String password, String username) {
+        return new RegisterStoreRequest(code, "Auth Security Store " + code, "Store Owner",
+                username + "@test.local", "9000000021", "2 Test Street", null, "Karnataka",
+                username, password, "Main Branch");
     }
 
     private Map<String, Object> registerPayload(String code, String password) {

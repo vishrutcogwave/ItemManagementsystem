@@ -1,12 +1,14 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.service.ItemImportExcelService;
+import com.itemmanagement.service.StoreProvisioningService;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -81,6 +83,9 @@ class ItemImportIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     private volatile String cachedPlatformToken;
 
@@ -686,18 +691,9 @@ class ItemImportIntegrationTest {
         String code = "I" + seq + Integer.toString((int) (System.currentTimeMillis() % 1296), 36)
                 .toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                map("storeCode", code,
-                        "storeName", "Import Store " + code,
-                        "ownerName", "Store Owner",
-                        "email", "owner" + seq + "@test.local",
-                        "mobile", "9000000003",
-                        "address", "1 Test Street",
-                        "gstNumber", null,
-                        "state", "Karnataka",
-                        "username", username,
-                        "password", "Secret@123",
-                        "branchName", "Main Branch"), null, HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code, "Import Store " + code,
+                "Store Owner", "owner" + seq + "@test.local", "9000000003", "1 Test Street",
+                null, "Karnataka", username, "Secret@123", "Main Branch"), false);
         return loginSession(code, username, "Secret@123");
     }
 

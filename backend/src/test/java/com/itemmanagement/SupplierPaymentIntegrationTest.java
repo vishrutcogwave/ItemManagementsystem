@@ -1,6 +1,8 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
+import com.itemmanagement.service.StoreProvisioningService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,6 +44,9 @@ class SupplierPaymentIntegrationTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     // ---------- core settlement flow ----------
 
@@ -325,13 +330,9 @@ class SupplierPaymentIntegrationTest {
         int seq = SEQ.incrementAndGet();
         String code = "SP" + seq + Integer.toString((int) (System.currentTimeMillis() % 1296), 36).toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                map("storeCode", code, "storeName", "Supplier Pay Store " + code,
-                        "ownerName", "Store Owner", "email", "sp" + seq + "@test.local",
-                        "mobile", "9000000011", "address", "1 Payment Street", "gstNumber", null,
-                        "state", "Karnataka", "username", username, "password", "Secret@123",
-                        "branchName", "Main Branch"),
-                null, HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code, "Supplier Pay Store " + code,
+                "Store Owner", "sp" + seq + "@test.local", "9000000011", "1 Payment Street",
+                null, "Karnataka", username, "Secret@123", "Main Branch"), false);
         JsonNode auth = call(HttpMethod.POST, "/api/auth/login",
                 map("storeCode", code, "username", username, "password", "Secret@123"),
                 null, HttpStatus.OK);

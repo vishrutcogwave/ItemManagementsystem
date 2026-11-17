@@ -3,10 +3,12 @@ package com.itemmanagement.service;
 import com.itemmanagement.dto.master.BranchResponse;
 import com.itemmanagement.entity.Branch;
 import com.itemmanagement.entity.Store;
+import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.repository.BranchRepository;
 import com.itemmanagement.repository.StoreRepository;
+import com.itemmanagement.repository.UserRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ public class BranchService {
 
     private final BranchRepository branchRepository;
     private final StoreRepository storeRepository;
+    private final UserRepository userRepository;
     private final AuditService auditService;
 
     @Transactional(readOnly = true)
@@ -91,11 +94,18 @@ public class BranchService {
         branch.setAddress(request.address().trim());
         branch.setContactNumber(request.contactNumber().trim());
         branch.setState(blankToNull(request.state()));
+        StoreStatus previousStatus = branch.getStatus();
         if (request.status() != null) {
             branch.setStatus(request.status());
         }
         branchRepository.save(branch);
-        auditService.log("UPDATE", "BRANCH", id, "Updated branch " + branch.getBranchName());
+        if (deactivation(previousStatus, branch.getStatus())) {
+            boolean invalidated = invalidateBranchScopedSessions(storeId, id);
+            auditService.logRequired("DEACTIVATE", "BRANCH", id,
+                    "Updated and deactivated branch " + branch.getBranchName() + invalidatedNote(invalidated));
+        } else {
+            auditService.log("UPDATE", "BRANCH", id, "Updated branch " + branch.getBranchName());
+        }
         return toResponse(branch);
     }
 
@@ -103,11 +113,52 @@ public class BranchService {
     public BranchResponse updateStatus(Long id, StoreStatus status) {
         Long storeId = TenantContext.storeId();
         Branch branch = find(id, storeId);
+        StoreStatus previousStatus = branch.getStatus();
         branch.setStatus(status);
         branchRepository.save(branch);
-        auditService.log(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "BRANCH", id,
-                "Branch status changed to " + status);
+        if (deactivation(previousStatus, status)) {
+            boolean invalidated = invalidateBranchScopedSessions(storeId, id);
+            auditService.logRequired("DEACTIVATE", "BRANCH", id,
+                    "Branch deactivated" + invalidatedNote(invalidated));
+        } else {
+            auditService.log(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "BRANCH", id,
+                    "Branch status changed to " + status);
+        }
         return toResponse(branch);
+    }
+
+    private boolean deactivation(StoreStatus previous, StoreStatus current) {
+        return previous != StoreStatus.INACTIVE && current == StoreStatus.INACTIVE;
+    }
+
+    /**
+     * Branch scope travels in the token, so an inactive branch must invalidate
+     * the sessions that were granted it. Owners and store admins reach every
+     * branch through {@code allBranches} and are deliberately excluded: their
+     * tokens do not lose any capability, and a deactivation is the very action
+     * they may need to reverse.
+     */
+    private boolean invalidateBranchScopedSessions(Long storeId, Long branchId) {
+        List<User> members = userRepository.findMembersOfBranch(storeId, branchId);
+        boolean invalidated = false;
+        for (User member : members) {
+            if (!hasAllBranchAccess(member)) {
+                member.setTokenVersion(member.getTokenVersion() + 1);
+                invalidated = true;
+            }
+        }
+        userRepository.saveAll(members);
+        return invalidated;
+    }
+
+    private boolean hasAllBranchAccess(User user) {
+        return user.getRoles().stream().anyMatch(role ->
+                StoreProvisioningService.STORE_OWNER.equals(role.getCode())
+                        || StoreProvisioningService.STORE_ADMIN.equals(role.getCode()));
+    }
+
+    private String invalidatedNote(boolean invalidated) {
+        return invalidated ? "; sessions scoped to this branch were invalidated" : "";
     }
 
     public Branch find(Long id, Long storeId) {

@@ -1,11 +1,13 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
 import com.itemmanagement.entity.Role;
 import com.itemmanagement.entity.User;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.repository.RoleRepository;
 import com.itemmanagement.repository.UserRepository;
+import com.itemmanagement.service.StoreProvisioningService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -69,6 +71,9 @@ class SystemInvariantIntegrationTest {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     private volatile String cachedPlatformToken;
 
@@ -779,9 +784,9 @@ class SystemInvariantIntegrationTest {
         int seq = SEQ.incrementAndGet();
         String code = "T" + seq + Integer.toString((int) (System.currentTimeMillis() % 1296), 36).toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                registerBodyWith(code, "Test Store " + code, "owner" + seq + "@test.local", username), null,
-                HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code, "Test Store " + code,
+                "Store Owner", "owner" + seq + "@test.local", "9000000003", "1 Test Street",
+                null, "Karnataka", username, "Secret@123", "Main Branch"), false);
         return loginWithUsername(code, username);
     }
 

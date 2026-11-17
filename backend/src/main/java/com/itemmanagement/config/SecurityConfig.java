@@ -2,12 +2,14 @@ package com.itemmanagement.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.itemmanagement.security.JwtAuthFilter;
+import com.itemmanagement.security.PlatformPolicy;
 import com.itemmanagement.security.SubscriptionAccessFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -50,9 +52,18 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/auth/register-store",
+                                "/api/platform/public-contact",
                                 "/api/health", "/api/version",
                                 "/api/printing/devices/pair", "/api/printing/device/config",
                                 "/error").permitAll()
+                        // Enforce platform authorization before request-body validation so a
+                        // non-admin can never learn whether their payload would have been accepted.
+                        // The trusted authority is only granted to global platform accounts by
+                        // JwtAuthFilter, so store users can never satisfy it.
+                        .requestMatchers(HttpMethod.POST, "/api/stores")
+                        .hasAuthority(PlatformPolicy.TRUSTED_AUTHORITY)
+                        .requestMatchers(HttpMethod.DELETE, "/api/stores/*")
+                        .hasAuthority(PlatformPolicy.TRUSTED_AUTHORITY)
                         .anyRequest().authenticated())
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint((request, response, ex) ->

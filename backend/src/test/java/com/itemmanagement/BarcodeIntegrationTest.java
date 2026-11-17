@@ -1,6 +1,8 @@
 package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.itemmanagement.dto.auth.RegisterStoreRequest;
+import com.itemmanagement.service.StoreProvisioningService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,6 +47,9 @@ class BarcodeIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private StoreProvisioningService provisioningService;
 
     @Test
     void creatingAnItemGeneratesAUniqueCode128BarcodeAndLookupFindsIt() {
@@ -207,18 +212,9 @@ class BarcodeIntegrationTest {
         String code = "B" + seq + Integer.toString((int) (System.currentTimeMillis() % 1296), 36)
                 .toUpperCase();
         String username = "owner" + seq;
-        call(HttpMethod.POST, "/api/auth/register-store",
-                map("storeCode", code,
-                        "storeName", "Barcode Store " + code,
-                        "ownerName", "Store Owner",
-                        "email", "owner" + seq + "@test.local",
-                        "mobile", "9000000005",
-                        "address", "1 Test Street",
-                        "gstNumber", null,
-                        "state", "Karnataka",
-                        "username", username,
-                        "password", "Secret@123",
-                        "branchName", "Main Branch"), null, HttpStatus.CREATED);
+        provisioningService.createStore(new RegisterStoreRequest(code, "Barcode Store " + code,
+                "Store Owner", "owner" + seq + "@test.local", "9000000005", "1 Test Street",
+                null, "Karnataka", username, "Secret@123", "Main Branch"), false);
         return loginSession(code, username, "Secret@123");
     }
 

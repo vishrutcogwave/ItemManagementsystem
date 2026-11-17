@@ -41,7 +41,7 @@ public class StoreService {
     @Transactional
     public StoreResponse create(RegisterStoreRequest request) {
         StoreProvisioningService.ProvisionedStore provisioned = provisioningService.createStore(request, true);
-        auditService.log("CREATE", "STORE", provisioned.store().getId(),
+        auditService.logRequired("CREATE", "STORE", provisioned.store().getId(),
                 "Created store " + provisioned.store().getStoreName());
         return toResponse(provisioned.store());
     }
@@ -55,7 +55,10 @@ public class StoreService {
     public StoreResponse platformUpdate(Long id, UpdateStoreRequest request) {
         Store store = find(id);
         apply(store, request);
-        return toResponse(storeRepository.save(store));
+        storeRepository.save(store);
+        auditService.logRequired("UPDATE", "STORE", id,
+                "Platform administrator updated store details for " + store.getStoreCode());
+        return toResponse(store);
     }
 
     @Transactional
@@ -63,7 +66,7 @@ public class StoreService {
         Store store = find(id);
         store.setStatus(status);
         storeRepository.save(store);
-        auditService.log(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "STORE", id,
+        auditService.logRequired(status == StoreStatus.ACTIVE ? "ACTIVATE" : "DEACTIVATE", "STORE", id,
                 "Store status changed to " + status);
         return toResponse(store);
     }
@@ -80,7 +83,7 @@ public class StoreService {
         Store store = find(storeId);
         apply(store, request);
         storeRepository.save(store);
-        auditService.log("UPDATE", "STORE", storeId, "Store details updated");
+        auditService.logRequired("UPDATE", "STORE", storeId, "Store details updated");
         return toResponse(store);
     }
 
