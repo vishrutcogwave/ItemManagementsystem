@@ -26,6 +26,15 @@ server:
   port: ${SERVER_PORT:8080}
   error:
     include-message: always
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # Only the loopback NGINX proxy may supply the client address. Any other
+      # peer keeps its own socket address and its forwarded headers are ignored.
+      internal-proxies: '127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1'
+      # NGINX does not overwrite these headers, so they must not be processed.
+      host-header: ''
+      port-header: ''
 
 app:
   jwt:
@@ -47,6 +56,14 @@ app:
     login-max-attempts: ${LOGIN_MAX_ATTEMPTS:5}
     login-window-seconds: ${LOGIN_WINDOW_SECONDS:900}
     login-lockout-seconds: ${LOGIN_LOCKOUT_SECONDS:900}
+    login-ip-max-attempts: ${LOGIN_IP_MAX_ATTEMPTS:20}
+    login-ip-window-seconds: ${LOGIN_IP_WINDOW_SECONDS:900}
+    login-ip-lockout-seconds: ${LOGIN_IP_LOCKOUT_SECONDS:900}
+    login-max-tracked-keys: ${LOGIN_MAX_TRACKED_KEYS:10000}
+    login-state-cleanup-ms: ${LOGIN_STATE_CLEANUP_MS:300000}
+    pairing-max-attempts: ${PAIRING_MAX_ATTEMPTS:10}
+    pairing-window-seconds: ${PAIRING_WINDOW_SECONDS:60}
+    pairing-lockout-seconds: ${PAIRING_LOCKOUT_SECONDS:300}
     blacklist-cleanup-ms: ${TOKEN_BLACKLIST_CLEANUP_MS:3600000}
   platform-admin:
     provision: ${PROVISION_PLATFORM_ADMIN:false}
