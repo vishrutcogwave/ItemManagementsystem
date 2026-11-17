@@ -119,7 +119,7 @@ export function LoginPage() {
         <p className="text-center text-xs text-slate-500">
           New store?{' '}
           <Link to="/register" className="link">
-            Register your business
+            Contact us
           </Link>
         </p>
       </form>

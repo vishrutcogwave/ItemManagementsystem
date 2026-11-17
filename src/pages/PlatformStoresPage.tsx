@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Building2,
   CalendarDays,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   Plus,
   Power,
   Store as StoreIcon,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -40,6 +42,7 @@ import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage, fieldErrorsOf } from '../lib/api'
 import { formatDate, formatDateTime } from '../lib/format'
 import { passwordProblem, PASSWORD_HINT } from '../lib/password'
+import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
 import type {
   PageResponse,
@@ -91,6 +94,7 @@ const emptySubscription: SubscriptionFormState = {
 }
 
 export function PlatformStoresPage() {
+  const platformAdmin = useAuthStore((state) => state.platformAdmin)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(0)
@@ -127,6 +131,11 @@ export function PlatformStoresPage() {
   const [viewing, setViewing] = useState<Store | null>(null)
   const [statusTarget, setStatusTarget] = useState<Store | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
+
+  const [deleteTarget, setDeleteTarget] = useState<Store | null>(null)
+  const [deleteName, setDeleteName] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const [subTarget, setSubTarget] = useState<Store | null>(null)
   const [subSummary, setSubSummary] = useState<SubscriptionSummary | null>(null)
@@ -258,6 +267,42 @@ export function PlatformStoresPage() {
       notifyError(errorMessage(err))
     } finally {
       setStatusSaving(false)
+    }
+  }
+
+  const openDelete = (store: Store) => {
+    setViewing(null)
+    setDeleteTarget(store)
+    setDeleteName('')
+    setDeleteError(null)
+  }
+
+  const closeDelete = () => {
+    if (deleting) return
+    setDeleteTarget(null)
+    setDeleteName('')
+    setDeleteError(null)
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const confirmation = deleteName.trim()
+    if (confirmation !== deleteTarget.storeName) {
+      setDeleteError('Enter the exact store name to confirm permanent deletion')
+      return
+    }
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await api.delete(`/stores/${deleteTarget.id}`, { params: { confirmName: confirmation } })
+      notify(`${deleteTarget.storeName} was permanently deleted`)
+      setDeleteTarget(null)
+      setDeleteName('')
+      refresh()
+    } catch (err) {
+      setDeleteError(errorMessage(err))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -479,6 +524,15 @@ export function PlatformStoresPage() {
           >
             <Power className="h-3.5 w-3.5" />
           </button>
+          {platformAdmin && (
+            <button
+              onClick={() => openDelete(row)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-rose-500 transition hover:bg-rose-50 hover:text-rose-700"
+              title="Delete store permanently"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -967,6 +1021,81 @@ export function PlatformStoresPage() {
             </p>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(deleteTarget)}
+        onClose={closeDelete}
+        title="Permanently delete store"
+        description={
+          deleteTarget
+            ? `${deleteTarget.storeCode} · Owner ${deleteTarget.ownerName}`
+            : undefined
+        }
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={closeDelete} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={<Trash2 className="h-4 w-4" />}
+              onClick={confirmDelete}
+              loading={deleting}
+              disabled={!deleteTarget || deleteName.trim() !== deleteTarget.storeName}
+            >
+              Delete store permanently
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {deleteError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+              {deleteError}
+            </div>
+          )}
+          <div className="flex gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-rose-600 shadow-sm">
+              <AlertTriangle className="h-4.5 w-4.5" />
+            </span>
+            <p className="pt-0.5 text-xs leading-relaxed font-semibold text-rose-700">
+              This action will permanently delete this store and all its associated business data. This action
+              cannot be undone.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-slate-50 py-2">
+              <p className="text-[10px] font-semibold tracking-wide text-slate-500 uppercase">Branches</p>
+              <p className="text-sm font-bold text-slate-800">{deleteTarget?.branchCount ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 py-2">
+              <p className="text-[10px] font-semibold tracking-wide text-slate-500 uppercase">Users</p>
+              <p className="text-sm font-bold text-slate-800">{deleteTarget?.userCount ?? 0}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 py-2">
+              <p className="text-[10px] font-semibold tracking-wide text-slate-500 uppercase">Store ID</p>
+              <p className="text-sm font-bold text-slate-800">{deleteTarget?.id ?? '—'}</p>
+            </div>
+          </div>
+          <Field
+            label={deleteTarget ? `Type “${deleteTarget.storeName}” to confirm` : 'Store name'}
+            required
+            hint="Must match the store name exactly"
+          >
+            <Input
+              value={deleteName}
+              onChange={(event) => {
+                setDeleteName(event.target.value)
+                if (deleteError) setDeleteError(null)
+              }}
+              placeholder={deleteTarget?.storeName}
+              autoComplete="off"
+              invalid={Boolean(deleteName) && deleteName.trim() !== deleteTarget?.storeName}
+            />
+          </Field>
+        </div>
       </Modal>
 
       <ConfirmDialog

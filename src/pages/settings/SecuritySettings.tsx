@@ -9,10 +9,6 @@ import { notify } from '../../store/ui'
 interface BuildInfo {
   name: string
   version: string
-  artifact: string
-  buildTime: string
-  gitCommit: string
-  javaVersion: string
 }
 
 export function SecuritySettings() {
@@ -80,21 +76,9 @@ export function SecuritySettings() {
                 <p className="text-slate-400">Version</p>
                 <p className="font-semibold text-slate-700">{build?.version ?? '—'}</p>
               </div>
-              <div>
-                <p className="text-slate-400">Build</p>
-                <p className="font-mono text-[11px] font-semibold text-slate-700">{build?.gitCommit ?? '—'}</p>
-              </div>
-              <div>
-                <p className="text-slate-400">Built</p>
-                <p className="font-semibold text-slate-700">{build?.buildTime ?? '—'}</p>
-              </div>
-              <div>
-                <p className="text-slate-400">Java</p>
-                <p className="font-semibold text-slate-700">{build?.javaVersion ?? '—'}</p>
-              </div>
             </div>
             <p className="mt-2 text-[11px] text-slate-400">
-              Quote the version and build commit when reporting a problem so support can match the exact release.
+              Quote this version when reporting a problem so support can identify your release.
             </p>
           </div>
         </div>
