@@ -300,8 +300,9 @@ The orchestrator:
 7. stops `item-management`, installs the jar as `ims:ims 0644`, starts the service;
 8. waits up to 150 s for systemd active + port 8080 + local `/api/health` `"status":"UP"`;
 9. verifies public apex and www `/` and `/api/health` return 200, no failed Flyway rows, no pending
-   migrations, and logs the runtime `gitCommit` from `/api/version` (mismatch is a warning only,
-   because `GIT_COMMIT` in the environment can override the embedded value);
+   migrations, and logs the installed jar's embedded git commit from `build-info.properties`
+   (mismatch is a warning only, because `GIT_COMMIT` in the environment can override the embedded
+   value); the public `/api/version` now reports only the application name and version;
 10. on failure keeps a copy of the failed jar, restores the previous jar, restarts, re-checks
     health, appends the result and exits 4 (or 5 if rollback also failed);
 11. on success prunes old jar and frontend backups (newest **2** each) and appends history.
@@ -329,12 +330,14 @@ Deployment complete
 ```bash
 sudo /usr/local/sbin/ims-deploy-status
 curl -fsS https://hiremathwebstudio.in/api/version
+$env:IMS_ADMIN_TOKEN = '<platform-admin-bearer-token>'
 powershell -File deploy\windows\Test-DeploymentHealth.ps1 -ExpectedCommit <40-hex-commit>
 ```
 
-`Test-DeploymentHealth.ps1` checks both site URLs, the public API health endpoint and, with
-`-ExpectedCommit`, that `/api/version` reports a `gitCommit` starting with the deployed commit.
-It is read-only and exits 1 on any failure.
+`Test-DeploymentHealth.ps1` checks both site URLs, the public API health endpoint and that the
+public version endpoint exposes only name/version. With `-ExpectedCommit` it reads the build time
+and `gitCommit` from the platform-admin `GET /api/platform/version`, using `-AdminToken` or the
+`IMS_ADMIN_TOKEN` environment variable. It is read-only and exits 1 on any failure.
 
 ---
 
@@ -373,12 +376,14 @@ The deployed commit is traceable at three levels:
 1. `HEAD` is captured on Windows and enforced clean before building.
 2. The full commit is written into the manifest, validated on the server against `--commit` and
    checked against the jar's embedded `git.commit`.
-3. `/api/version` returns `gitCommit` from `app.build.git-commit` (defaults to the embedded Gradle
-   build-info) so the running process can be checked at any time.
+3. `GET /api/version` is public but returns only the application name and version. The commit and
+   build time are available to platform administrators at `GET /api/platform/version` (guarded by
+   `PLATFORM_MANAGE` plus a store-less platform identity), and the orchestrator confirms the
+   deployed revision from the installed jar's `build-info.properties`.
 
-If `/api/version` reports a different commit, the orchestrator logs a warning. Likely causes: the
-`GIT_COMMIT` environment variable in `/etc/item-management.env` overrides the embedded value, or
-the service did not actually restart. Investigate before considering the deployment finished.
+If the installed jar's commit differs from the deployed commit, the orchestrator logs a warning.
+Likely causes: the service did not restart, or the jar was replaced outside the orchestrator.
+Investigate before considering the deployment finished.
 
 ---
 

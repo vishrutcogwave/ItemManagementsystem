@@ -78,7 +78,7 @@ screenshots, a machine-readable responsive-results file and the K-01–K-27 stat
 | Revocation | Persistent `revoked_tokens` + per-user `token_version` (`ver` claim) + scheduled purge of expired rows |
 | Login | Per-key/address lockout and window (`429 TOO_MANY_REQUESTS`) |
 | Platform security | Global audit viewer with filters and CSV export; reset requires `confirm=true`, `no-store`, one-time secret; rotation screen for platform admins |
-| Operations | Public `/api/health` (DB probe) and `/api/version` (build/Git commit); global pagination bounds; version shown in Settings → Security |
+| Operations | Public `/api/health` (DB probe) and `/api/version` (name/version only); build commit and time available to platform admins at `/api/platform/version`; global pagination bounds; version shown in Settings → Security |
 | Barcode | Configurable internal EAN-13 prefix, `INTERNAL`/`GS1` classification + UI badge, ZXing fallback for browsers without `BarcodeDetector`, label calibration page |
 | Docs/quality | Lint 0 warnings; docs refreshed; V7 rollback shim scripts; retention/backup/monitoring procedures documented |
 
@@ -215,7 +215,8 @@ New endpoints are additive; 24 controllers / 133 route mappings total.
 | POST | `/api/items/{id}/barcode` | `ITEM_MANAGE` | Regenerate barcode (`CODE128` / `EAN13`) |
 | POST | `/api/auth/change-password` | authenticated | Change own password (platform or store user); invalidates other sessions |
 | GET | `/api/health` | public | Database-backed health probe; no secrets |
-| GET | `/api/version` | public | Build version, time, Git commit, Java version; no secrets |
+| GET | `/api/version` | public | Application name and version only; no build/revision metadata |
+| GET | `/api/platform/version` | `PLATFORM_MANAGE` + store-less platform identity | Build time and Git commit for deployment verification |
 | GET | `/api/platform/accounts` | `PLATFORM_MANAGE` | List/search store accounts |
 | GET | `/api/platform/accounts/{id}` | `PLATFORM_MANAGE` | Account detail |
 | PUT | `/api/platform/accounts/{id}/username` | `PLATFORM_MANAGE` | Rename account |
@@ -385,7 +386,8 @@ Full commands: `ADMIN_DEPLOYMENT_GUIDE.md` §6; tick list: `DEPLOYMENT_CHECKLIST
 8. Confirm `Successfully applied 3 migrations` and `Started ItemManagementApplication`.
 9. Verify V1–V8 history, printing tables, barcode column/index, V8 columns/`revoked_tokens`,
    permissions, zero missing barcodes, zero cross-store rows.
-10. Check `/api/health` returns `UP` and `/api/version` shows the deployed commit.
+10. Check `/api/health` returns `UP` and the platform-admin `/api/platform/version` shows the deployed
+    commit (the public `/api/version` exposes only the application version).
 11. Deploy the frontend with `rsync`; verify `index.html` and HTTPS.
 12. Rotate the platform administrator password; verify old password fails and new succeeds.
 13. Smoke test login (cookie), item create with auto-barcode, label download/print, POS scan, sale,

@@ -268,9 +268,9 @@ audit 24 months, print jobs 12 months, archive before deletion, deletion only wi
 
 **Implementation.** `GET /api/health` is public, executes `select 1` against PostgreSQL and returns
 `{status, database, timestamp}` with `Cache-Control: no-store`; HTTP 503 when the database is down.
-It contains no version, host, credentials or configuration. `GET /api/version` returns build metadata
-without secrets. Both are exempt from the subscription filter. Test:
-`healthAndVersionArePublicAndContainNoSecrets`.
+It contains no version, host, credentials or configuration. `GET /api/version` returns only the
+application name and version. Both are exempt from the subscription filter. Tests:
+`healthAndVersionArePublicAndContainNoSecrets`, `publicVersionExposesOnlyNameAndVersion`.
 
 ### K-12 — Production deployment not executed or verified
 
@@ -382,11 +382,20 @@ Deleting historical production data without explicit approval is prohibited.
 
 ### K-22 — Static version string
 
-**Status: Fixed.** `GET /api/version` returns name, version, artifact, build time, Git commit
-(`app.build.git-commit` / Gradle `buildInfo`) and Java version, with `no-store`. The Settings →
-Security screen shows the same build information. Test:
-`healthAndVersionArePublicAndContainNoSecrets`. The endpoint is intentionally public so a load
-balancer or operator can identify a deployment; it exposes no secret, host or credential.
+**Status: Fixed (information disclosure tightened).** Three pieces of this changed:
+
+- `GET /api/version` now returns only `{name, version}` with `no-store`. It no longer reveals the
+  Git commit, build time, artifact coordinates or Java runtime version, so the exact deployed
+  revision cannot be fingerprinted by unauthenticated callers.
+- Deployment verification moved to `GET /api/platform/version`, guarded by `PLATFORM_MANAGE` plus a
+  store-less platform identity. It returns `{name, version, buildTime, gitCommit}` with `no-store`.
+- The Settings → Security screen shows only the application version.
+
+The deployment closeout verifies the revision from the installed jar's embedded
+`build-info.properties` (root-readable), so it does not depend on the public endpoint. Tests:
+`publicVersionExposesOnlyNameAndVersion`, `anonymousCallerCannotReadTheDeploymentCommit`,
+`storeUserCannotReadTheDeploymentCommit`, `platformAdministratorReadsTheDeploymentCommit`,
+`noPublicEndpointLeaksTheRevision`.
 
 ### K-23 — Lint warnings
 
@@ -463,7 +472,8 @@ Frontend: `tsc -b` clean; oxlint 0/0; production build succeeded; `npm audit` 0 
    HTTPS.
 3. Apply V8 through Flyway during the deployment window; V8 is additive (`must_change_password`,
    `token_version`, `revoked_tokens`) and does not modify business data.
-4. Verify `/api/health` returns `UP` and `/api/version` shows the expected Git commit.
+4. Verify `/api/health` returns `UP`, `/api/version` shows the application version, and a platform
+   administrator sees the expected Git commit at `/api/platform/version`.
 5. Keep the V7 compatibility scripts ready but unapplied unless a jar rollback is approved.
 6. Set up backups, restore verification, uptime monitoring and the documented retention review
    (K-20/K-21); no server settings were changed by this work.

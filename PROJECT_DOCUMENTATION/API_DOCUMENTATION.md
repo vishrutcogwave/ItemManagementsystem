@@ -1,9 +1,9 @@
 # API Documentation
 
 > Verified against the 24 controller classes in
-> `backend/src/main/java/com/itemmanagement/controller/` on **2026-11-01**. There are
-> **133 route mappings**. Every path is prefixed with `/api` at the reverse proxy; controllers
-> declare `/api/...` explicitly.
+> `backend/src/main/java/com/itemmanagement/controller/` on **2026-11-01** (route count refreshed
+> 2026-11-17). There are **134 route mappings**. Every path is prefixed with `/api` at the reverse
+> proxy; controllers declare `/api/...` explicitly.
 >
 > “Permission” is the `@PreAuthorize` authority required **in addition to** a valid JWT. Missing or
 > invalid token → `401`; missing permission → `403`; wrong tenant/branch → `403`/`404`; validation →
@@ -85,7 +85,7 @@ number with 2 decimals; quantities may have 3 decimals.
 | POST | `/api/auth/login` | none |
 | POST | `/api/auth/register-store` | none |
 | GET | `/api/health` | none — database probe, no secrets |
-| GET | `/api/version` | none — build metadata, no secrets |
+| GET | `/api/version` | none — application name and version only |
 | POST | `/api/printing/devices/pair` | one-time pairing code |
 | GET | `/api/printing/device/config` | `X-Device-Token` |
 | GET | `/api/subscription/summary` | JWT, exempt from subscription blocking |
@@ -539,9 +539,13 @@ Public, unauthenticated operational endpoints; no credentials, host names or con
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/health` | Runs `select 1`; `200 {"status":"UP","database":"UP","timestamp":"…"}` or `503` with `DOWN`. `no-store`. |
-| GET | `/version` | `{name, version, artifact, buildTime, gitCommit, javaVersion}`. `no-store`. Intended for deployment identification. |
+| GET | `/version` | `{name, version}`. `no-store`. Deliberately omits the commit, build time and Java runtime version so the endpoint cannot fingerprint the deployment. |
 
 Neither endpoint is blocked by subscription expiry.
+
+Deployment identification lives behind the platform guard: `GET /api/platform/version`
+(`PLATFORM_MANAGE` plus a store-less platform identity) returns
+`{name, version, buildTime, gitCommit}` with `no-store`.
 
 ---
 

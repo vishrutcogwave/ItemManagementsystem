@@ -259,7 +259,9 @@ If an uploaded artifact or the deploy account is suspected compromised:
    `stat` ownership/mode, `sha256sum`, and compare with the value produced on Windows.
 2. Remove or quarantine the staged files (root action). Do not execute them.
 3. Review `/var/lib/ims-deploy/history/deployments.jsonl` and `journalctl -u item-management`.
-4. Verify the running artifacts against the newest verified backups and `/api/version`.
+4. Verify the running artifacts against the newest verified backups and the installed jar's embedded
+   `build-info.properties`; use `/api/platform/version` with a platform-admin token for the running
+   revision (the public `/api/version` exposes only the application version).
 5. Rotate the deploy SSH key (new passphrase) and update `deploy.config.psd1`; remove the old
    public key from `authorized_keys` only with owner approval.
 6. If the service or site was modified, follow `ROLLBACK_GUIDE.md`; a database restore still needs

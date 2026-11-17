@@ -5,7 +5,7 @@
 **Document date:** 2026-10-30
 **Primary server platform:** Ubuntu Server 24.04 LTS
 **Alternative server platform:** Windows Server 2022 / 2025
-**Database:** one PostgreSQL database, `item_management_db`
+**Database:** one PostgreSQL database, `item_management_prod`
 **Status:** deployment manual for the existing, completed application
 
 > **This document is documentation only.** It does not add features, modify application source code, change application configuration, execute SQL scripts, install packages, or run migrations. Every command and SQL statement is for you, the operator, to review and execute deliberately on your own server.
@@ -66,17 +66,17 @@ Internet
    |  443 / 80
    v
 NGINX  (one host, three server names)
-   |-- admin.mydomain.com  -> /opt/ims/web (React SPA) + /api/ proxy
-   |-- app.mydomain.com    -> /opt/ims/web (React SPA) + /api/ proxy
+   |-- admin.mydomain.com  -> /var/www/item-management (React SPA) + /api/ proxy
+   |-- app.mydomain.com    -> /var/www/item-management (React SPA) + /api/ proxy
    |-- api.mydomain.com    -> proxy all paths to Spring Boot
    |
    |  127.0.0.1:8080 only
    v
-Spring Boot 3.3.5 / Java 17  (item-management-backend-1.0.0.jar)
+Spring Boot 3.3.5 / Java 17  (/opt/item-management/backend/item-management.jar)
    |
    |  127.0.0.1:5432 only
    v
-PostgreSQL 16  (one database: item_management_db)
+PostgreSQL 16  (one database: item_management_prod)
 ```
 
 One server can run all three components. For a larger installation, PostgreSQL can move to a private database host later; that is a configuration change, not a code change.
@@ -310,7 +310,7 @@ sudo -u postgres psql
 
 You do not need to set a password for the `postgres` superuser for local administration, and you should not use that account for the application.
 
-The application user `ims_app` is created by script 01 in Section 4.1 with a password and limited privileges. Connections from the application use TCP to `127.0.0.1:5432`, which Ubuntu's default `pg_hba.conf` handles with `scram-sha-256`.
+The application user `ims_user` is created by script 01 in Section 4.1 with a password and limited privileges. Connections from the application use TCP to `127.0.0.1:5432`, which Ubuntu's default `pg_hba.conf` handles with `scram-sha-256`.
 
 Check the relevant lines:
 
@@ -333,18 +333,18 @@ Do not change these to `trust` on a production server.
 
 Follow **Section 4.1** now. It creates:
 
-- role `ims_app` — login, no superuser, no createdb, no createrole;
-- database `item_management_db` — owned by `ims_app`;
+- role `ims_user` — login, no superuser, no createdb, no createrole;
+- database `item_management_prod` — owned by `ims_user`;
 - schema ownership and session defaults.
 
 After running it, test the application connection:
 
 ```bash
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -c "SELECT current_user, current_database(), current_setting('timezone');"
 ```
 
-Enter the `ims_app` password when prompted. Expected: `ims_app`, `item_management_db`, `UTC`.
+Enter the `ims_user` password when prompted. Expected: `ims_user`, `item_management_prod`, `UTC`.
 
 ### 3.5 How Spring Boot connects in production
 
@@ -353,30 +353,70 @@ The backend's `application.yml` has two profiles:
 - Default (no profile): starts the **embedded** PostgreSQL 14.10 on port 54329. This is for development.
 - `postgres`: disables embedded PostgreSQL and connects to a standalone server using `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, and `DB_POOL_SIZE`.
 
-Production must use the `postgres` profile. The mapping is:
+Production must use the `postgres` profile. The production layout is:
 
-| Environment variable | Spring property | Production value |
+| Item | Path |
+|---|---|
+| Application root | `/opt/item-management` |
+| Backend jar | `/opt/item-management/backend/item-management.jar` |
+| Environment file | `/etc/item-management.env` (root-only, mode 600) |
+| Frontend files | `/var/www/item-management` |
+| systemd unit | `/etc/systemd/system/item-management.service` |
+| Deployment backups | `/var/backups/item-management` |
+
+### 3.5.1 Required environment variables
+
+The defaults in `application.yml` are development values. Every variable in this table must be set explicitly in `/etc/item-management.env`; omitting one either connects to the wrong database, starts the embedded development database, or ships a known JWT secret.
+
+| Environment variable | Spring property | Required production value |
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | active profile | `postgres` |
 | `EMBEDDED_POSTGRES` | `app.embedded-postgres.enabled` | `false` |
-| `DB_URL` | `spring.datasource.url` | `jdbc:postgresql://127.0.0.1:5432/item_management_db` |
-| `DB_USERNAME` | `spring.datasource.username` | `ims_app` |
-| `DB_PASSWORD` | `spring.datasource.password` | `[DB PASSWORD]` |
-| `DB_POOL_SIZE` | Hikari maximum pool size | `15` |
-| `SPRING_FLYWAY_ENABLED` | `spring.flyway.enabled` | `true` on the Flyway path |
+| `DB_URL` | `spring.datasource.url` | `jdbc:postgresql://127.0.0.1:5432/item_management_prod` (the database created in Section 4) |
+| `DB_USERNAME` | `spring.datasource.username` | `ims_user` (the role created in Section 4) |
+| `DB_PASSWORD` | `spring.datasource.password` | the production database password — never committed |
+| `JWT_SECRET` | `app.jwt.secret` | a unique production secret, at least 32 characters — never committed |
+| `CORS_ORIGINS` | `app.cors.allowed-origins` | the exact HTTPS origins, comma-separated, no trailing slash |
+| `AUTH_COOKIE_SECURE` | `app.auth.cookie-secure` | `true` — HTTPS cookies must never be sent over plain HTTP |
 | `SEED_DEMO` | `app.seed-demo` | `false` |
-| `SERVER_ADDRESS` | `server.address` | `127.0.0.1` |
-| `SERVER_PORT` | `server.port` | `8080` |
-| `JWT_SECRET` | `app.jwt.secret` | a unique production secret |
-| `JWT_EXPIRATION_MS` | `app.jwt.expiration-ms` | `43200000` (12 hours) |
-| `CORS_ORIGINS` | `app.cors.allowed-origins` | your three HTTPS origins, comma-separated |
+| `SERVER_ADDRESS` | `server.address` | `127.0.0.1` (only NGINX may reach the API) |
+| `SERVER_PORT` | `server.port` | `8080` (the port NGINX proxies to) |
+| `SPRING_FLYWAY_ENABLED` | `spring.flyway.enabled` | `true` on the Flyway path, `false` only on the manual-SQL path |
 
-The database name is fixed at `item_management_db` in the application's embedded configuration and is the name used by all scripts in this guide. Do not create per-store databases.
+### 3.5.2 Optional settings and their defaults
+
+These are safe to omit. Set them only to tune behaviour or to match an existing deployment.
+
+| Environment variable | Default | Purpose |
+|---|---|---|
+| `DB_POOL_SIZE` | `15` | Hikari maximum connections |
+| `JWT_EXPIRATION_MS` | `43200000` | Token lifetime (12 hours) |
+| `AUTH_COOKIE_NAME` | `ims_auth` | Session cookie name |
+| `AUTH_COOKIE_SAME_SITE` | `Strict` | Session cookie SameSite policy |
+| `LOGIN_MAX_ATTEMPTS` | `5` | Failures per account before lockout |
+| `LOGIN_WINDOW_SECONDS` | `900` | Account failure counting window |
+| `LOGIN_LOCKOUT_SECONDS` | `900` | Account lockout duration |
+| `LOGIN_IP_MAX_ATTEMPTS` | `20` | **Aggregate** login failures per client address |
+| `LOGIN_IP_WINDOW_SECONDS` | `900` | Aggregate per-address counting window |
+| `LOGIN_IP_LOCKOUT_SECONDS` | `900` | Aggregate per-address lockout duration |
+| `LOGIN_MAX_TRACKED_KEYS` | `10000` | Cap on in-memory rate-limit counters |
+| `LOGIN_STATE_CLEANUP_MS` | `300000` | Interval for purging expired counters |
+| `PAIRING_MAX_ATTEMPTS` | `10` | Failed printer pairings per address before lockout |
+| `PAIRING_WINDOW_SECONDS` | `60` | Pairing failure counting window |
+| `PAIRING_LOCKOUT_SECONDS` | `300` | Pairing lockout duration |
+| `TOKEN_BLACKLIST_CLEANUP_MS` | `3600000` | Interval for purging expired revocations |
+| `PROVISION_PLATFORM_ADMIN` | `false` | One-time platform administrator bootstrap |
+| `PLATFORM_ADMIN_USERNAME` / `PLATFORM_ADMIN_PASSWORD` | empty | Bootstrap credentials; remove after first use |
+| `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_FULL_NAME` / `PLATFORM_ADMIN_MOBILE` | empty / `Platform Administrator` | Bootstrap profile |
+| `GIT_COMMIT` | `unknown` | Overrides the commit reported by the jar's build info |
+| `LOGGING_FILE_NAME` | unset | Adds a file log; systemd journald already captures stdout |
+
+The database name is fixed per installation. Section 4 and the deployment scripts use `item_management_prod`; the embedded development runtime uses `item_management_db`. Do not create per-store databases.
 
 ### 3.6 Production PostgreSQL notes
 
-- The application connects as `ims_app`, never as `postgres`.
-- `ims_app` owns the database and the `public` schema, which is what Flyway needs to create and alter tables.
+- The application connects as `ims_user`, never as `postgres`.
+- `ims_user` owns the database and the `public` schema, which is what Flyway needs to create and alter tables.
 - The application uses `spring.jpa.hibernate.ddl-auto=validate`. Hibernate validates the schema; it does not create it. Flyway (or scripts 02-04) must create the schema first.
 - `statement_timeout` is set to 60 seconds and `idle_in_transaction_session_timeout` to 120 seconds by script 01. These are sensible defaults for this application.
 - Keep PostgreSQL on localhost. If you must separate the database host, use a private network/VPN and a firewall rule that allows only the application server.
@@ -392,14 +432,14 @@ There are two supported ways to create the schema:
 
 | Path | What you run | Flyway setting | When to use |
 |---|---|---|---|
-| **A. Flyway (recommended)** | Script 01 only. Start the backend; Flyway runs V1, V2, V3. | `SPRING_FLYWAY_ENABLED=true` (default) | New production database, normal deployment |
+| **A. Flyway (recommended)** | Script 01 only. Start the backend; Flyway runs V1 through V11. | `SPRING_FLYWAY_ENABLED=true` (default) | New production database, normal deployment |
 | **B. Manual SQL** | Scripts 01, 02, 03, 04 in order. | `SPRING_FLYWAY_ENABLED=false` | A DBA must create the schema without starting the application, or you are restoring a manually built database |
 
 **Never run scripts 02-04 on a database that Flyway has already migrated.** The tables already exist and `02_create_tables.sql` has no `IF NOT EXISTS`; the script will fail. **Never enable Flyway on a manually created schema**; Flyway will try to create the same tables and fail. Choose one path and stay on it.
 
-Script 01 is always run manually as the PostgreSQL superuser. Scripts 02-04 are executed as `ims_app` against `item_management_db`.
+Script 01 is always run manually as the PostgreSQL superuser. Scripts 02-04 are executed as `ims_user` against `item_management_prod`.
 
-The four scripts below are reproduced exactly from `docs/sql/`. If you have the repository on the server, you can run the files directly instead of copying from this document. Do not edit the schema statements. The only value you must replace is the `ims_app` password placeholder in script 01.
+The four scripts below are reproduced from `docs/sql/`, with the role and database names set to the production values `ims_user` and `item_management_prod`. The repository files still use the older placeholder names `ims_app` and `item_management_db`; if you run the files directly instead of copying from this document, replace those two names consistently before running them. Do not edit the schema statements. The only value you must supply is the `ims_user` password placeholder in script 01.
 
 ### 4.1 Script 01 — create the database and application role
 
@@ -421,7 +461,7 @@ Replace `CHANGE_ME_STRONG_PASSWORD` with a long random password before running. 
 openssl rand -hex 24
 ```
 
-Store that value in a password manager. You will put it in `/opt/ims/config/ims.env` as `DB_PASSWORD` and in the backup `.pgpass` file. Do not commit it to source control.
+Store that value in a password manager. You will put it in `/etc/item-management.env` as `DB_PASSWORD` and in the backup `.pgpass` file. Do not commit it to source control.
 
 `CREATE DATABASE` cannot run inside a transaction block, and `\connect` is a psql meta-command. Therefore script 01 is a **psql** script, not a single generic SQL batch. For pgAdmin, see Section 4.6.
 
@@ -445,9 +485,9 @@ Store that value in a password manager. You will put it in `/opt/ims/config/ims.
 --   the application.
 --
 -- WHAT THIS SCRIPT DOES
---   1. Creates role ims_app (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE).
---   2. Creates database item_management_db owned by ims_app.
---   3. Makes the public schema usable only by ims_app and the superuser.
+--   1. Creates role ims_user (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE).
+--   2. Creates database item_management_prod owned by ims_user.
+--   3. Makes the public schema usable only by ims_user and the superuser.
 --   4. Sets the database timezone to UTC.
 --
 -- WHAT THIS SCRIPT DOES NOT DO
@@ -479,8 +519,8 @@ Store that value in a password manager. You will put it in `/opt/ims/config/ims.
 -- 1. Application login (cluster-wide object)
 -- ---------------------------------------------------------------------
 -- Replace the placeholder with a long random secret, or create the role
--- without a password and then run:  \password ims_app
-CREATE ROLE ims_app
+-- without a password and then run:  \password ims_user
+CREATE ROLE ims_user
     LOGIN
     PASSWORD 'CHANGE_ME_STRONG_PASSWORD'
     NOSUPERUSER
@@ -496,28 +536,28 @@ CREATE ROLE ims_app
 -- 2. The one shared database for all stores and branches
 -- ---------------------------------------------------------------------
 -- There must be exactly one database for the whole application. Do not create
--- item_management_db_store1, item_management_db_branch2, etc.
-CREATE DATABASE item_management_db
-    OWNER ims_app
+-- item_management_prod_store1, item_management_prod_branch2, etc.
+CREATE DATABASE item_management_prod
+    OWNER ims_user
     ENCODING 'UTF8'
     TEMPLATE template0;
 
-COMMENT ON DATABASE item_management_db IS
+COMMENT ON DATABASE item_management_prod IS
     'Single shared database for the Item Management System. Tenants are separated by store_id.';
 
 -- ---------------------------------------------------------------------
 -- 3. Schema permissions
 -- ---------------------------------------------------------------------
-\connect item_management_db
+\connect item_management_prod
 
 -- The application owns the schema so Flyway can create and alter objects.
-ALTER SCHEMA public OWNER TO ims_app;
+ALTER SCHEMA public OWNER TO ims_user;
 
 -- PostgreSQL 14 grants CREATE on public to PUBLIC by default. Remove it so no
 -- other login can create objects in the application schema.
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE, CREATE ON SCHEMA public TO ims_app;
+GRANT USAGE, CREATE ON SCHEMA public TO ims_user;
 
 -- Identity/sequence/table privileges are inherited through ownership of the
 -- schema and of the objects Flyway creates. No global grants are required.
@@ -525,9 +565,9 @@ GRANT USAGE, CREATE ON SCHEMA public TO ims_app;
 -- ---------------------------------------------------------------------
 -- 4. Session defaults
 -- ---------------------------------------------------------------------
-ALTER DATABASE item_management_db SET timezone TO 'UTC';
-ALTER DATABASE item_management_db SET statement_timeout TO '60s';
-ALTER DATABASE item_management_db SET idle_in_transaction_session_timeout TO '120s';
+ALTER DATABASE item_management_prod SET timezone TO 'UTC';
+ALTER DATABASE item_management_prod SET statement_timeout TO '60s';
+ALTER DATABASE item_management_prod SET idle_in_transaction_session_timeout TO '120s';
 
 -- ---------------------------------------------------------------------
 -- 5. Verification (read-only)
@@ -538,11 +578,11 @@ SELECT datname,
        pg_get_userbyid(datdba) AS owner,
        pg_encoding_to_char(encoding) AS encoding
 FROM pg_database
-WHERE datname = 'item_management_db';
+WHERE datname = 'item_management_prod';
 
 SELECT rolname, rolsuper, rolcanlogin, rolcreatedb, rolcreaterole
 FROM pg_roles
-WHERE rolname = 'ims_app';
+WHERE rolname = 'ims_user';
 
 SELECT nspname, pg_get_userbyid(nspowner) AS owner
 FROM pg_namespace
@@ -561,10 +601,10 @@ WHERE nspname = 'public';
 
 This is the consolidated final schema after Flyway V1, V2 and V3. It creates the 23 application tables, all primary keys, composite foreign keys, unique constraints and check constraints, plus the four document-number sequences.
 
-Run it only on the **manual SQL path**, connected to `item_management_db` as `ims_app`:
+Run it only on the **manual SQL path**, connected to `item_management_prod` as `ims_user`:
 
 ```bash
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f docs/sql/02_create_tables.sql
 ```
 
@@ -1211,7 +1251,7 @@ The primary-key and unique indexes are created with the table constraints in scr
 Run it only on the manual SQL path, after script 02:
 
 ```bash
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f docs/sql/03_create_indexes.sql
 ```
 
@@ -1336,10 +1376,10 @@ This script inserts the required reference data:
 
 It does **not** create a store, a business user, or demo transactions. The application creates the platform user on first start (see Section 11), and the platform console creates stores and owners (Section 13).
 
-Run it only on the manual SQL path, after scripts 02 and 03, as `ims_app`:
+Run it only on the manual SQL path, after scripts 02 and 03, as `ims_user`:
 
 ```bash
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f docs/sql/04_insert_initial_data.sql
 ```
 
@@ -1644,11 +1684,11 @@ The platform user is created by the application's `DataSeeder`, not by script 04
 sudo -u postgres psql -v ON_ERROR_STOP=1 -f /path/to/01_create_database.sql
 
 # Scripts 02-04 as the application user, manual-path only
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f /path/to/02_create_tables.sql
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f /path/to/03_create_indexes.sql
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f /path/to/04_insert_initial_data.sql
 ```
 
@@ -1660,9 +1700,9 @@ Script 01 contains `CREATE DATABASE` and the psql meta-command `\connect`, which
 
 1. Connect to the `postgres` database as the `postgres` superuser.
 2. Open Query Tool and execute the `CREATE ROLE ...` statement and the `CREATE DATABASE ...` statement, including the `COMMENT ON DATABASE` statement. Do not include `\connect`.
-3. Connect a new Query Tool session to `item_management_db`.
-4. Execute the remaining part of script 01: `ALTER SCHEMA public OWNER TO ims_app`, the two `REVOKE` statements, the `GRANT`, the four `ALTER DATABASE` statements, and the verification queries. Remove the `\connect` line.
-5. Connect to `item_management_db` as `ims_app`.
+3. Connect a new Query Tool session to `item_management_prod`.
+4. Execute the remaining part of script 01: `ALTER SCHEMA public OWNER TO ims_user`, the two `REVOKE` statements, the `GRANT`, the four `ALTER DATABASE` statements, and the verification queries. Remove the `\connect` line.
+5. Connect to `item_management_prod` as `ims_user`.
 6. Execute scripts 02, 03 and 04 in order in Query Tool.
 
 pgAdmin may wrap a large script in a transaction. Script 02 contains only DDL, which is transactional in PostgreSQL, so that is fine. Script 01's `CREATE DATABASE` cannot run in a transaction; execute it by itself with autocommit enabled.
@@ -1708,7 +1748,7 @@ On the Flyway path, after the first backend start:
 ```sql
 SELECT installed_rank, version, description, success
 FROM flyway_schema_history
-ORDER BY installed_rank;                                               -- V1, V2, V3 success
+ORDER BY installed_rank;                                               -- V1 through V11 success
 ```
 
 On the manual path, `flyway_schema_history` does not exist and must not exist. Keep `SPRING_FLYWAY_ENABLED=false`.
@@ -1719,13 +1759,13 @@ On the manual path, `flyway_schema_history` does not exist and must not exist. K
 
 | File | Purpose | Production use |
 |---|---|---|
-| `05_database_validation.sql` | Read-only schema, constraint and integrity checks | Safe to run at any time as `ims_app` |
+| `05_database_validation.sql` | Read-only schema, constraint and integrity checks | Safe to run at any time as `ims_user` |
 | `06_sample_business_flow.sql` | Creates a disposable demo store, purchase, sale, POS transaction and transfer | **Never run on production** |
 
 Run the validation script after deployment if you want a broader check than Section 4.7:
 
 ```bash
-psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -v ON_ERROR_STOP=1 -f docs/sql/05_database_validation.sql
 ```
 
@@ -1762,8 +1802,8 @@ The embedded server is a development convenience. Production uses the standalone
 2. **Use a `pg_dump` client that is the same version or newer than the source server.** A PostgreSQL 16 `pg_dump` can dump a 14.10 server.
 3. **Stop application writes during the final dump.** A dump is transaction-consistent, but writes made after the dump starts are not included. Put the system into a maintenance window, confirm no users are working, take the dump, then cut over.
 4. **Keep the old `.pgdata` untouched** until the new database has been verified and the backup/restore process has been tested.
-5. **Migrate the Flyway history too.** A full dump includes `flyway_schema_history`, so the new backend sees V1-V3 and does not re-run migrations.
-6. **One database.** The target is still `item_management_db`; every store and branch stays in that one database.
+5. **Migrate the Flyway history too.** A full dump includes `flyway_schema_history`, so the new backend sees V1-V11 and does not re-run migrations.
+6. **One database.** The target is still `item_management_prod`; every store and branch stays in that one database.
 
 ### 5.3 Preparation
 
@@ -1793,7 +1833,7 @@ Get-NetTCPConnection -LocalPort 54329
 On the target server:
 
 - PostgreSQL 16 is installed and running (Section 3).
-- Script 01 has been run, creating `ims_app` and an **empty** `item_management_db`.
+- Script 01 has been run, creating `ims_user` and an **empty** `item_management_prod`.
 - Do **not** run scripts 02-04 on the target before the restore. The dump contains the schema.
 - The backend is not started yet, or it is stopped.
 
@@ -1831,8 +1871,8 @@ The extracted binary directory is temporary; if it has already been removed, do 
 An archive of `.pgdata` is a useful rollback copy, but it is **not** the migration mechanism. Stop the server first, then archive (run from the repository root):
 
 ```bash
-sudo mkdir -p /var/backups/ims
-sudo tar -czf /var/backups/ims/embedded-pgdata-pre-migration-$(date +%F).tar.gz -C backend .pgdata
+sudo mkdir -p /var/backups/item-management
+sudo tar -czf /var/backups/item-management/embedded-pgdata-pre-migration-$(date +%F).tar.gz -C backend .pgdata
 ```
 
 Keep this archive until the standalone database has passed verification. Do not copy the directory into a PostgreSQL 16 data directory.
@@ -1871,7 +1911,7 @@ $env:PGPASSWORD = "postgres"
 & "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe" `
   --host=127.0.0.1 --port=54329 --username=postgres --dbname=item_management_db `
   --format=custom --compress=9 --no-owner --no-privileges --verbose `
-  --file="C:\ims-backup\item_management_db_embedded.dump"
+  --file="C:\ims-backup\item_management_prod_embedded.dump"
 Remove-Item Env:PGPASSWORD
 ```
 
@@ -1909,14 +1949,14 @@ sha256sum /tmp/item_management_db_embedded_YYYY-MM-DD_HHMMSS.dump
 
 ### 5.7 Restore into the standalone database
 
-Connect as `ims_app` to the empty `item_management_db`. Use `--single-transaction` so a failure rolls back the whole restore instead of leaving a partial database:
+Connect as `ims_user` to the empty `item_management_prod`. Use `--single-transaction` so a failure rolls back the whole restore instead of leaving a partial database:
 
 ```bash
 pg_restore \
   --host=127.0.0.1 \
   --port=5432 \
-  --username=ims_app \
-  --dbname=item_management_db \
+  --username=ims_user \
+  --dbname=item_management_prod \
   --no-owner \
   --no-privileges \
   --single-transaction \
@@ -1925,11 +1965,11 @@ pg_restore \
   /tmp/item_management_db_embedded_YYYY-MM-DD_HHMMSS.dump
 ```
 
-Enter the `ims_app` password when prompted. If you use a `.pgpass` file, set `PGPASSFILE`.
+Enter the `ims_user` password when prompted. If you use a `.pgpass` file, set `PGPASSFILE`.
 
 Why these flags:
 
-- `--no-owner` and `--no-privileges`: the objects are created and owned by the connecting role `ims_app`, which is the correct production owner. The old `postgres` owner is not carried over.
+- `--no-owner` and `--no-privileges`: the objects are created and owned by the connecting role `ims_user`, which is the correct production owner. The old `postgres` owner is not carried over.
 - `--single-transaction`: all-or-nothing.
 - `--exit-on-error`: stop at the first error; do not hide a partial restore.
 
@@ -1988,13 +2028,13 @@ Compare the source and target values. If they differ, do not proceed.
 
 1. Stop the old backend (the one using embedded PostgreSQL).
 2. Confirm port 8080 is free and port 54329 is closed.
-3. Create `/opt/ims/config/ims.env` from Section 8 with:
+3. Create `/etc/item-management.env` from Section 8 with:
 
 ```
 SPRING_PROFILES_ACTIVE=postgres
 EMBEDDED_POSTGRES=false
-DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db
-DB_USERNAME=ims_app
+DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod
+DB_USERNAME=ims_user
 DB_PASSWORD=[DB PASSWORD]
 DB_POOL_SIZE=15
 SPRING_FLYWAY_ENABLED=true
@@ -2007,7 +2047,7 @@ CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com,https://api.myd
 ```
 
 4. Start the new backend (Section 12).
-5. Confirm the log says Flyway validated the existing history and did not run new migrations. You should see V1, V2 and V3 as already applied, not "Migrating schema".
+5. Confirm the log says Flyway validated the existing history and did not run new migrations. You should see V1 through V11 as already applied, not "Migrating schema".
 6. Log in with an existing store account and the existing platform account. Verify data.
 
 ### 5.10 Rollback
@@ -2026,8 +2066,8 @@ Only after the new deployment has passed Section 15 and you have kept it stable 
 
 ```bash
 # On the old host, stop the old application first
-tar -czf /var/backups/ims/embedded-pgdata-final-$(date +%F).tar.gz -C backend .pgdata
-sha256sum /var/backups/ims/embedded-pgdata-final-*.tar.gz
+tar -czf /var/backups/item-management/embedded-pgdata-final-$(date +%F).tar.gz -C backend .pgdata
+sha256sum /var/backups/item-management/embedded-pgdata-final-*.tar.gz
 ```
 
 Keep the archive according to your retention policy. Do not delete the `.pgdata` directory until the archive has been verified and the new database has a tested backup. The extracted embedded server binaries in the temporary directory are disposable; the `.pgdata` directory is the data.
@@ -2051,7 +2091,7 @@ If the source was seeded with `SEED_DEMO=true`, the dump contains the demo store
 - [ ] Dump checksum verified after copying.
 - [ ] Target database was empty before restore.
 - [ ] Restore used `--single-transaction --exit-on-error`.
-- [ ] Flyway history V1-V3 is present and successful.
+- [ ] Flyway history V1-V11 is present and successful.
 - [ ] Row counts and financial/stock totals match the source.
 - [ ] Production env uses the `postgres` profile and `EMBEDDED_POSTGRES=false`.
 - [ ] `SEED_DEMO=false`.
@@ -2148,13 +2188,13 @@ rsync -avz --delete dist/ deploy@[SERVER IP]:/tmp/ims-web/
 On the server:
 
 ```bash
-sudo rsync -a --delete /tmp/ims-web/ /opt/ims/web/
-sudo chown -R root:www-data /opt/ims/web
-sudo find /opt/ims/web -type d -exec chmod 755 {} \;
-sudo find /opt/ims/web -type f -exec chmod 644 {} \;
+sudo rsync -a --delete /tmp/ims-web/ /var/www/item-management/
+sudo chown -R root:www-data /var/www/item-management
+sudo find /var/www/item-management -type d -exec chmod 755 {} \;
+sudo find /var/www/item-management -type f -exec chmod 644 {} \;
 ```
 
-`--delete` removes stale hashed assets from the previous release. It only touches `/opt/ims/web`, which is a build-output directory. Do not point it at a directory containing source or user files.
+`--delete` removes stale hashed assets from the previous release. It only touches `/var/www/item-management`, which is a build-output directory. Do not point it at a directory containing source or user files.
 
 On Windows, upload the contents of `dist\` with WinSCP, SCP, or `scp -r .\dist\* deploy@[SERVER IP]:/tmp/ims-web/`, then run the same server-side copy.
 
@@ -2168,7 +2208,7 @@ Do not upload:
 - `.env` files or secrets;
 - the repository `.git/` directory.
 
-Only `dist/` contents belong in `/opt/ims/web`.
+Only `dist/` contents belong in `/var/www/item-management`.
 
 ### 6.8 Caching rules
 
@@ -2294,14 +2334,14 @@ scp backend/build/libs/item-management-backend-1.0.0.jar deploy@[SERVER IP]:/tmp
 On the server:
 
 ```bash
-sudo install -o ims -g ims -m 640 \
+sudo install -o ims -g ims -m 0640 \
   /tmp/item-management-backend-1.0.0.jar \
-  /opt/ims/app/item-management-backend-1.0.0.jar
+  /opt/item-management/backend/item-management.jar
 
-sha256sum /opt/ims/app/item-management-backend-1.0.0.jar
+sha256sum /opt/item-management/backend/item-management.jar
 ```
 
-The service runs as `ims`; mode `640` with owner `ims` is sufficient. The file does not need to be executable.
+The service runs as `ims`; mode `640` with owner `ims` is sufficient. The file does not need to be executable. The deployed name is always `item-management.jar` (the release identity is tracked in the deployment history, not in the filename), which is what `deploy/server/ims-deploy-backend` installs.
 
 ### 7.6 Running the tests (optional)
 
@@ -2333,7 +2373,7 @@ Install Temurin 17 for Windows from the official Adoptium page if it is not alre
 
 ### 7.8 Backend configuration is external
 
-Do not edit `application.yml` for production. The production values are supplied through environment variables in `/opt/ims/config/ims.env` (Section 8). This keeps secrets out of the JAR and out of source control, and it means the same JAR can be promoted between environments.
+Do not edit `application.yml` for production. The production values are supplied through environment variables in `/etc/item-management.env` (Section 8.3). This keeps secrets out of the JAR and out of source control, and it means the same JAR can be promoted between environments.
 
 The critical production values are:
 
@@ -2341,15 +2381,16 @@ The critical production values are:
 SPRING_PROFILES_ACTIVE=postgres
 EMBEDDED_POSTGRES=false
 SEED_DEMO=false
-DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db
-DB_USERNAME=ims_app
+DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod
+DB_USERNAME=ims_user
 DB_PASSWORD=...
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
 JWT_SECRET=...
+AUTH_COOKIE_SECURE=true
 ```
 
-If `SPRING_PROFILES_ACTIVE=postgres` is missing, the datasource settings from the `postgres` profile are not applied. With `EMBEDDED_POSTGRES=false`, the application then falls back to the built-in defaults (`jdbc:postgresql://localhost:5432/item_management_db` as user `postgres`), and with no `EMBEDDED_POSTGRES` setting at all it starts its own embedded PostgreSQL on port 54329. Either way it is not using your production configuration. If `SEED_DEMO` is missing, its default is `true`. Both mistakes are serious in production; Section 15 checks them.
+If `SPRING_PROFILES_ACTIVE=postgres` is missing, the datasource settings from the `postgres` profile are not applied. With `EMBEDDED_POSTGRES=false`, the application then falls back to the built-in defaults (`jdbc:postgresql://localhost:5432/item_management_db` as user `postgres`), and with no `EMBEDDED_POSTGRES` setting at all it starts its own embedded PostgreSQL on port 54329. Either way it is not using your production configuration. If `SEED_DEMO` is missing, its default is `false` in `application.yml`, but set it explicitly so the intent is recorded. Section 15 checks all of these.
 
 ---
 
@@ -2368,70 +2409,78 @@ The application runs as `ims`. It does not need `sudo`, a login shell, or member
 ### 8.2 Create the directory layout
 
 ```bash
-sudo mkdir -p /opt/ims/app
-sudo mkdir -p /opt/ims/web
-sudo mkdir -p /opt/ims/config
-sudo mkdir -p /opt/ims/logs
-sudo mkdir -p /opt/ims/backups
-
-sudo chown -R ims:ims /opt/ims
-sudo chmod 750 /opt/ims /opt/ims/app /opt/ims/config /opt/ims/logs /opt/ims/backups
-sudo chmod 755 /opt/ims/web
+sudo install -d -o ims -g ims -m 0750 /opt/item-management
+sudo install -d -o ims -g ims -m 0750 /opt/item-management/backend
+sudo install -d -o ims -g ims -m 0750 /var/backups/item-management
+sudo install -d -o ims -g adm -m 0750 /var/log/item-management
+sudo install -d -o root -g www-data -m 0755 /var/www/item-management
 ```
 
-Final layout:
+Final layout (matches the deployment scripts in `deploy/`):
 
 ```
-/opt/ims/
-├── app/
-│   └── item-management-backend-1.0.0.jar     ims:ims       640
-├── web/
-│   ├── index.html                            root:www-data 644
-│   └── assets/...                            root:www-data 644
-├── config/
-│   ├── ims.env                               root:ims      640
-│   └── pgpass                                ims:ims       600
-├── logs/
-│   └── ims-backend.log                       ims:ims       640
-└── backups/
-    └── item_management_db_YYYY-MM-DD.dump    ims:ims       600
+/opt/item-management/
+└── backend/
+    └── item-management.jar                   ims:ims       0640
+
+/var/www/item-management/
+├── index.html                                root:www-data 644
+└── assets/...                                root:www-data 644
+
+/etc/item-management.env                      root:root     600
+
+/var/backups/item-management/
+├── .pgpass                                   ims:ims       0600
+└── <deployment backups>                      ims:ims       0600
+
+/var/log/item-management/                     ims:adm       0750  (only if LOGGING_FILE_NAME is set)
 ```
 
-`/opt/ims/web` must be readable by the NGINX worker user (`www-data`). The other directories are private to `ims` and root. Do not put `.pgdata`, source code, `node_modules`, or the repository in `/opt/ims/web`.
+`/var/www/item-management` must be readable by the NGINX worker user (`www-data`). `/opt/item-management` and `/etc/item-management.env` are private to `ims` and root. Do not put `.pgdata`, source code, `node_modules`, or the repository under `/var/www/item-management`.
 
 ### 8.3 Create the environment file
 
 ```bash
-sudo touch /opt/ims/config/ims.env
-sudo chown root:ims /opt/ims/config/ims.env
-sudo chmod 640 /opt/ims/config/ims.env
-sudo nano /opt/ims/config/ims.env
+sudo touch /etc/item-management.env
+sudo chown root:root /etc/item-management.env
+sudo chmod 600 /etc/item-management.env
+sudo nano /etc/item-management.env
 ```
 
-Contents (replace every placeholder):
+Contents (replace every placeholder; the values below are the defaults from `application.yml` where the variable is optional):
 
 ```ini
-# Spring Boot runtime
+# Required
 SPRING_PROFILES_ACTIVE=postgres
 EMBEDDED_POSTGRES=false
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
-
-# PostgreSQL
-DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db
-DB_USERNAME=ims_app
+DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod
+DB_USERNAME=ims_user
 DB_PASSWORD=[DB PASSWORD]
-DB_POOL_SIZE=15
 SPRING_FLYWAY_ENABLED=true
 SEED_DEMO=false
-
-# Security
 JWT_SECRET=[PRODUCTION JWT SECRET]
-JWT_EXPIRATION_MS=43200000
-CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com,https://api.mydomain.com
+CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com
+AUTH_COOKIE_SECURE=true
 
-# Logging (optional; journald also captures stdout)
-LOGGING_FILE_NAME=/opt/ims/logs/ims-backend.log
+# Optional tuning (defaults shown)
+DB_POOL_SIZE=15
+JWT_EXPIRATION_MS=43200000
+AUTH_COOKIE_NAME=ims_auth
+AUTH_COOKIE_SAME_SITE=Strict
+LOGIN_MAX_ATTEMPTS=5
+LOGIN_WINDOW_SECONDS=900
+LOGIN_LOCKOUT_SECONDS=900
+LOGIN_IP_MAX_ATTEMPTS=20
+LOGIN_IP_WINDOW_SECONDS=900
+LOGIN_IP_LOCKOUT_SECONDS=900
+LOGIN_MAX_TRACKED_KEYS=10000
+LOGIN_STATE_CLEANUP_MS=300000
+PAIRING_MAX_ATTEMPTS=10
+PAIRING_WINDOW_SECONDS=60
+PAIRING_LOCKOUT_SECONDS=300
+TOKEN_BLACKLIST_CLEANUP_MS=3600000
 ```
 
 Generate the secrets with hex output so the file needs no quoting:
@@ -2443,51 +2492,57 @@ openssl rand -hex 48     # JWT_SECRET: 96 hex characters (well above the 256-bit
 
 Rules:
 
-- `DB_PASSWORD` must match the password given to `ims_app` in script 01.
-- `JWT_SECRET` must be unique to production and must never be the development default `ims-dev-secret-key-change-me-...`.
+- `DB_PASSWORD` must match the password given to `ims_user` in Section 4.2.
+- `JWT_SECRET` must be unique to production and must never be the development default `ims-dev-secret-key-change-me-...`. Use at least 32 characters; 96 hex characters (48 random bytes) is comfortable.
 - Changing `JWT_SECRET` invalidates every existing session; users sign in again. That is the intended effect if a secret is compromised.
+- `AUTH_COOKIE_SECURE=true` is mandatory in production. It marks the session cookie `Secure`, so browsers send it only over HTTPS and never over a plain-HTTP request. With `false`, the cookie can travel over HTTP and the session is exposed to interception. Conversely, do not set `true` while testing on a plain-HTTP host, because browsers will not store a `Secure` cookie there and sign-in appears to loop.
 - `SEED_DEMO=false` is mandatory. The platform user is still created by `DataSeeder` on first start; Section 11 handles it.
 - `SPRING_FLYWAY_ENABLED=true` is for the Flyway path. On the manual SQL path, set it to `false`.
+- `CORS_ORIGINS` is only needed when a browser origin differs from the API origin. When the SPA and API share `https://item-management.example.com`, a value matching that origin (or leaving the default) is fine; never remove an existing entry.
+- `LOGIN_IP_*` are the aggregate per-IP sign-in limits (independent of the per-account `LOGIN_MAX_ATTEMPTS`). `LOGIN_MAX_TRACKED_KEYS` and `LOGIN_STATE_CLEANUP_MS` bound the in-memory counter map size and cleanup interval.
+- `PAIRING_*` are the per-IP printer-pairing limits.
 - Do not put spaces around `=` and do not wrap values in quotes unless they contain spaces. Hex/base64 secrets are safe unquoted.
 - If a value contains `#`, quote it or avoid it; systemd may treat it as a comment.
 
 Restrict access:
 
 ```bash
-sudo chown root:ims /opt/ims/config/ims.env
-sudo chmod 640 /opt/ims/config/ims.env
-sudo -u ims test -r /opt/ims/config/ims.env && echo "ims can read the env file"
+sudo chown root:root /etc/item-management.env
+sudo chmod 600 /etc/item-management.env
+sudo stat -c '%U:%G %a %n' /etc/item-management.env
 ```
+
+The file is read by systemd as root before it drops privileges (`User=ims`), so `root:root 600` is correct and the service still receives the variables. Do not make it world-readable or group-writable.
 
 ### 8.4 Create the backup password file
 
 `pg_dump` should read the password from a file, not from a command line or an interactive prompt in cron:
 
 ```bash
-sudo touch /opt/ims/config/pgpass
-sudo chown ims:ims /opt/ims/config/pgpass
-sudo chmod 600 /opt/ims/config/pgpass
+sudo touch /var/backups/item-management/.pgpass
+sudo chown ims:ims /var/backups/item-management/.pgpass
+sudo chmod 600 /var/backups/item-management/.pgpass
 ```
 
 Format (one line, no spaces):
 
 ```
-127.0.0.1:5432:item_management_db:ims_app:[DB PASSWORD]
+127.0.0.1:5432:item_management_prod:ims_user:[DB PASSWORD]
 ```
 
 Test:
 
 ```bash
-sudo -u ims env PGPASSFILE=/opt/ims/config/pgpass \
-  psql "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+sudo -u ims env PGPASSFILE=/var/backups/item-management/.pgpass \
+  psql "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -c "SELECT current_user, current_database();"
 ```
 
-The application itself does **not** use this file; it uses `DB_PASSWORD` from `ims.env`. The `.pgpass` file is only for backups and manual administration.
+The application itself does **not** use this file; it uses `DB_PASSWORD` from `/etc/item-management.env`. The `.pgpass` file is only for backups and manual administration.
 
 ### 8.5 Create the systemd service unit
 
-Create `/etc/systemd/system/ims-backend.service`:
+Create `/etc/systemd/system/item-management.service`:
 
 ```ini
 [Unit]
@@ -2500,9 +2555,9 @@ Requires=postgresql.service
 Type=simple
 User=ims
 Group=ims
-WorkingDirectory=/opt/ims/app
-EnvironmentFile=/opt/ims/config/ims.env
-ExecStart=/usr/bin/java -Xms256m -Xmx1024m -jar /opt/ims/app/item-management-backend-1.0.0.jar
+WorkingDirectory=/opt/item-management
+EnvironmentFile=/etc/item-management.env
+ExecStart=/usr/bin/java -Xms256m -Xmx1024m -jar /opt/item-management/backend/item-management.jar
 Restart=on-failure
 RestartSec=5
 SuccessExitStatus=143
@@ -2512,7 +2567,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/ims/logs
 
 [Install]
 WantedBy=multi-user.target
@@ -2520,12 +2574,12 @@ WantedBy=multi-user.target
 
 Notes:
 
-- `EnvironmentFile` must be readable by the `ims` user. The `root:ims` / `640` ownership in Section 8.3 satisfies this.
+- `EnvironmentFile` is read by systemd (as root) and injected into the process environment, so the file can stay `root:root 600` (Section 8.3).
+- The unit name is `item-management`; the deployment scripts in `deploy/server/` manage exactly this unit.
 - `-Xms256m -Xmx1024m` is appropriate for a 4 GB server. On an 8 GB server you may raise `-Xmx` to `2048m` after measuring memory use.
 - `SuccessExitStatus=143` treats the normal SIGTERM stop as success, so `systemctl stop` does not record a failure.
 - `Requires=postgresql.service` makes the database a hard dependency. If PostgreSQL is stopped, systemd also stops the backend rather than leaving it in a broken retry loop.
-- `ProtectSystem=full` makes the operating-system directories read-only to the service. `/opt/ims/logs` remains writable through `ReadWritePaths`.
-- If you change `LOGGING_FILE_NAME`, keep it under `/opt/ims/logs` or add the new path to `ReadWritePaths`.
+- `ProtectSystem=full` makes the operating-system directories read-only to the service. The service only needs to read the JAR and write to the journal, so no writable paths are required. If you set `LOGGING_FILE_NAME` to a file path, add that directory to `ReadWritePaths=` (see Section 8.6).
 
 Do not start the service yet if you have not completed the database steps. It is started in Section 11 for the bootstrap and in Section 12 for normal operation.
 
@@ -2534,14 +2588,14 @@ Do not start the service yet if you have not completed the database steps. It is
 The backend writes to standard output, which systemd captures in the journal. View it with:
 
 ```bash
-sudo journalctl -u ims-backend -f
+sudo journalctl -u item-management -f
 ```
 
-If `LOGGING_FILE_NAME` is set, Spring Boot also writes to `/opt/ims/logs/ims-backend.log`. Add log rotation so the disk does not fill:
+By default no log file is written, which is the intended production behaviour: the journal already rotates. If you deliberately set `LOGGING_FILE_NAME` (optional), Spring Boot also writes to that file. Add log rotation in that case so the disk does not fill:
 
 ```bash
-sudo tee /etc/logrotate.d/ims-backend >/dev/null <<'EOF'
-/opt/ims/logs/ims-backend.log {
+sudo tee /etc/logrotate.d/item-management >/dev/null <<'EOF'
+/var/log/item-management/item-management.log {
     daily
     rotate 14
     compress
@@ -2552,7 +2606,7 @@ sudo tee /etc/logrotate.d/ims-backend >/dev/null <<'EOF'
     su ims ims
 }
 EOF
-sudo logrotate -d /etc/logrotate.d/ims-backend
+sudo logrotate -d /etc/logrotate.d/item-management
 ```
 
 `copytruncate` avoids restarting the backend. The journal has its own rotation controlled by systemd.
@@ -2561,15 +2615,15 @@ sudo logrotate -d /etc/logrotate.d/ims-backend
 
 | Path | Owner | Mode | Why |
 |---|---|---|---|
-| `/opt/ims` | `ims:ims` | 750 | Private application root |
-| `/opt/ims/app` | `ims:ims` | 750 | JAR, private |
-| `/opt/ims/config` | `ims:ims` | 750 | Secrets, private |
-| `/opt/ims/config/ims.env` | `root:ims` | 640 | Readable by service, writable only by root |
-| `/opt/ims/config/pgpass` | `ims:ims` | 600 | Backup credential, private |
-| `/opt/ims/logs` | `ims:ims` | 750 | Writable by service |
-| `/opt/ims/backups` | `ims:ims` | 750 | Dumps, private |
-| `/opt/ims/web` | `root:www-data` | 755 | Readable by NGINX |
-| `/opt/ims/web/*` | `root:www-data` | 644/755 | Static files |
+| `/opt/item-management` | `ims:ims` | 750 | Private application root |
+| `/opt/item-management/backend` | `ims:ims` | 750 | JAR, private |
+| `/opt/item-management/backend/item-management.jar` | `ims:ims` | 640 | Executable by the service only |
+| `/etc/item-management.env` | `root:root` | 600 | Secrets, read by systemd as root |
+| `/var/www/item-management` | `root:www-data` | 755 | Readable by NGINX |
+| `/var/www/item-management/*` | `root:www-data` | 644/755 | Static files |
+| `/var/backups/item-management` | `ims:ims` | 750 | Dumps, private |
+| `/var/backups/item-management/.pgpass` | `ims:ims` | 600 | Backup credential, private |
+| `/var/log/item-management` | `ims:adm` | 750 | Optional file logs and cron output |
 
 Change `www-data` if your NGINX package uses a different worker user. Check with:
 
@@ -2591,7 +2645,7 @@ sudo rm -f /etc/nginx/sites-enabled/default
 
 ### 9.2 Design
 
-- `admin.mydomain.com` and `app.mydomain.com`: serve the SPA from `/opt/ims/web`; proxy `/api/` to `127.0.0.1:8080`.
+- `admin.mydomain.com` and `app.mydomain.com`: serve the SPA from `/var/www/item-management`; proxy `/api/` to `127.0.0.1:8080`.
 - `api.mydomain.com`: proxy every path to `127.0.0.1:8080`; do not serve the SPA.
 - HTTP is configured first so Certbot can validate the domains. Section 10 adds TLS and redirects.
 - NGINX is the only public entry point. Spring Boot binds to `127.0.0.1:8080`; PostgreSQL binds to `127.0.0.1:5432`.
@@ -2615,7 +2669,7 @@ server {
     listen [::]:80;
     server_name admin.mydomain.com;
 
-    root /opt/ims/web;
+    root /var/www/item-management;
     index index.html;
     server_tokens off;
     client_max_body_size 10m;
@@ -2629,7 +2683,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -2659,7 +2713,7 @@ server {
     listen [::]:80;
     server_name app.mydomain.com;
 
-    root /opt/ims/web;
+    root /var/www/item-management;
     index index.html;
     server_tokens off;
     client_max_body_size 10m;
@@ -2673,7 +2727,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -2715,7 +2769,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -2745,7 +2799,7 @@ curl -i -H "Host: api.mydomain.com" http://127.0.0.1/api/auth/me
 
 Expected:
 
-- the first two return the SPA `index.html` (HTTP 200) once `/opt/ims/web` is populated;
+- the first two return the SPA `index.html` (HTTP 200) once `/var/www/item-management` is populated;
 - the API request returns `401 Unauthorized` with a JSON body once the backend is running. Before Section 12 it may return `502 Bad Gateway`; that is expected while the backend is stopped.
 
 ### 9.5 Why `/api/` is proxied on the SPA hostnames
@@ -2760,8 +2814,8 @@ The browser requests `https://app.mydomain.com/api/auth/login`, not `https://api
 |---|---|---|
 | `proxy_pass http://ims_backend/;` with a trailing slash | `/api/...` is rewritten and may become `/...` | Use no URI part: `proxy_pass http://ims_backend;` |
 | Missing `try_files ... /index.html` | Deep links such as `/items` return 404 | Keep the SPA fallback in `location /` |
-| Serving the SPA from `/var/www/html` | Blank page or old files | `root /opt/ims/web;` |
-| `root /opt/ims/web/dist;` | 404 | Upload the **contents** of `dist/` to `/opt/ims/web` |
+| Serving the SPA from `/var/www/html` | Blank page or old files | `root /var/www/item-management;` |
+| `root /var/www/item-management/dist;` | 404 | Upload the **contents** of `dist/` to `/var/www/item-management` |
 | Port 8080 exposed publicly | Security exposure | Bind Spring Boot to `127.0.0.1` and only proxy through NGINX |
 | `location /api` without a trailing slash | Prefix match still works, but be consistent | Use `location /api/` |
 | Only configuring `admin` | Store users cannot reach the API | Configure both `admin` and `app` with the `/api/` proxy |
@@ -2861,7 +2915,7 @@ server {
     include             /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
 
-    root /opt/ims/web;
+    root /var/www/item-management;
     index index.html;
     server_tokens off;
     client_max_body_size 10m;
@@ -2875,7 +2929,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -2915,7 +2969,7 @@ server {
     include             /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
 
-    root /opt/ims/web;
+    root /var/www/item-management;
     index index.html;
     server_tokens off;
     client_max_body_size 10m;
@@ -2929,7 +2983,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -2981,7 +3035,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
         proxy_read_timeout 60s;
@@ -3051,7 +3105,7 @@ Use `includeSubDomains` only if every subdomain of `mydomain.com` is HTTPS. HSTS
 
 ### 10.8 CORS and the domains
 
-`CORS_ORIGINS` in `ims.env` must contain the exact HTTPS origins, comma-separated, with no trailing slash:
+`CORS_ORIGINS` in `/etc/item-management.env` must contain the exact HTTPS origins, comma-separated, with no trailing slash:
 
 ```
 CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com,https://api.mydomain.com
@@ -3123,20 +3177,20 @@ In the account commands below, `[MY OWN PASSWORD]` stands for the password you c
 You need the application to run once so Flyway creates the schema and the seeder creates the role's user. Do this before exposing the service publicly:
 
 1. Complete Sections 3, 4 (Flyway path: script 01 only), 8 and the service unit in Section 8.5.
-2. Confirm `SEED_DEMO=false` in `/opt/ims/config/ims.env`.
-3. Start the backend and wait for a clean startup. See Section 12 for the service commands. The first start runs Flyway V1-V3 and creates the `platform` user.
+2. Confirm `SEED_DEMO=false` in `/etc/item-management.env`.
+3. Start the backend and wait for a clean startup. See Section 12 for the service commands. The first start runs Flyway V1-V11 and creates the `platform` user.
 4. Watch the log:
 
 ```bash
-sudo journalctl -u ims-backend -n 200 --no-pager
+sudo journalctl -u item-management -n 200 --no-pager
 ```
 
-Expected: Flyway migrates V1, V2, V3 successfully, Hibernate validates the schema, the application starts on port 8080, and the seeder logs that it created the platform administrator.
+Expected: Flyway migrates V1 through V11 successfully, Hibernate validates the schema, the application starts on port 8080, and the seeder logs that it created the platform administrator.
 
 5. Stop the backend before changing the platform account:
 
 ```bash
-sudo systemctl stop ims-backend
+sudo systemctl stop item-management
 ```
 
 6. Choose **one** of the two account paths below.
@@ -3148,7 +3202,7 @@ This is the simplest path and avoids a second platform account. The username rem
 Connect to the database as a PostgreSQL administrator:
 
 ```bash
-sudo -u postgres psql -d item_management_db
+sudo -u postgres psql -d item_management_prod
 ```
 
 Then:
@@ -3190,7 +3244,7 @@ Expected: `platform`, your email/name, `ACTIVE`, and a prefix such as `$2a$10$`.
 Start the backend again:
 
 ```bash
-sudo systemctl start ims-backend
+sudo systemctl start item-management
 ```
 
 ### 11.6 Option B — create your own username and retire the seeded account
@@ -3200,8 +3254,8 @@ Use this if you want `[MY USERNAME]` to be your own name rather than `platform`.
 The bootstrap start in Section 11.4 has already created `platform`. Stop the backend, then connect:
 
 ```bash
-sudo systemctl stop ims-backend
-sudo -u postgres psql -d item_management_db
+sudo systemctl stop item-management
+sudo -u postgres psql -d item_management_prod
 ```
 
 Run:
@@ -3277,7 +3331,7 @@ Expected:
 Start the backend:
 
 ```bash
-sudo systemctl start ims-backend
+sudo systemctl start item-management
 ```
 
 On startup the seeder sees that `platform` still exists (inactive) and does not recreate it. The default password remains unusable because the row is inactive.
@@ -3323,7 +3377,7 @@ If login fails:
 
 To reset the platform password, stop the backend, repeat the `UPDATE ... crypt(...)` statement, and start it again. There is no change-password screen in this application for platform users.
 
-Changing the password does **not** invalidate JWTs that were already issued. Existing sessions remain valid until they expire (12 hours by default). If you need to revoke all sessions immediately, rotate `JWT_SECRET` in `ims.env` and restart the backend. Every user must sign in again.
+Changing the password does **not** invalidate JWTs that were already issued. Existing sessions remain valid until they expire (12 hours by default). If you need to revoke all sessions immediately, rotate `JWT_SECRET` in `/etc/item-management.env` and restart the backend. Every user must sign in again.
 
 ### 11.10 Audit note
 
@@ -3338,31 +3392,31 @@ Creating or updating a platform account with SQL bypasses the application's audi
 The systemd unit is defined in Section 8.5. The startup order is:
 
 1. PostgreSQL (`postgresql.service`) — required by the backend unit.
-2. Spring Boot (`ims-backend.service`) — connects to PostgreSQL, validates/migrates the schema, listens on `127.0.0.1:8080`.
+2. Spring Boot (`item-management.service`) — connects to PostgreSQL, validates/migrates the schema, listens on `127.0.0.1:8080`.
 3. NGINX (`nginx.service`) — serves the SPA and proxies `/api/` to the backend.
 
 Enable the backend so it starts after a reboot:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable ims-backend
-sudo systemctl start ims-backend
-sudo systemctl status ims-backend --no-pager
+sudo systemctl enable item-management
+sudo systemctl start item-management
+sudo systemctl status item-management --no-pager
 ```
 
-`daemon-reload` is needed after creating or editing the unit file. It is not needed after editing `ims.env`.
+`daemon-reload` is needed after creating or editing the unit file. It is not needed after editing `/etc/item-management.env`.
 
 ### 12.2 What a successful first start looks like
 
 ```bash
-sudo journalctl -u ims-backend -n 200 --no-pager
+sudo journalctl -u item-management -n 200 --no-pager
 ```
 
 A healthy first start includes:
 
 - the Spring Boot banner;
-- Hikari connecting to `jdbc:postgresql://127.0.0.1:5432/item_management_db` as `ims_app`;
-- Flyway validating and applying V1, V2, V3 (on a new database);
+- Hikari connecting to `jdbc:postgresql://127.0.0.1:5432/item_management_prod` as `ims_user`;
+- Flyway validating and applying V1 through V11 (on a new database);
 - Hibernate validating the schema (no `Schema-validation` errors);
 - Tomcat starting on port 8080;
 - the `DataSeeder` message about the platform administrator;
@@ -3403,26 +3457,26 @@ Expected: `127.0.0.1:8080` for Java and `127.0.0.1:5432` for PostgreSQL. Neither
 Spring Boot:
 
 ```bash
-sudo systemctl start ims-backend
-sudo systemctl stop ims-backend
-sudo systemctl restart ims-backend
-sudo systemctl status ims-backend --no-pager
-sudo systemctl is-enabled ims-backend
+sudo systemctl start item-management
+sudo systemctl stop item-management
+sudo systemctl restart item-management
+sudo systemctl status item-management --no-pager
+sudo systemctl is-enabled item-management
 ```
 
 Logs:
 
 ```bash
-sudo journalctl -u ims-backend -f
-sudo journalctl -u ims-backend -n 200 --no-pager
-sudo journalctl -u ims-backend --since "1 hour ago"
-sudo journalctl -u ims-backend -p err --since today
+sudo journalctl -u item-management -f
+sudo journalctl -u item-management -n 200 --no-pager
+sudo journalctl -u item-management --since "1 hour ago"
+sudo journalctl -u item-management -p err --since today
 ```
 
-If `LOGGING_FILE_NAME=/opt/ims/logs/ims-backend.log` is set:
+If `LOGGING_FILE_NAME=/var/log/item-management/item-management.log` is set:
 
 ```bash
-sudo -u ims tail -f /opt/ims/logs/ims-backend.log
+sudo -u ims tail -f /var/log/item-management/item-management.log
 ```
 
 PostgreSQL:
@@ -3451,12 +3505,12 @@ Use `reload` after a configuration change that passes `nginx -t`; use `restart` 
 
 ### 12.5 Restart after a configuration change
 
-After editing `/opt/ims/config/ims.env`:
+After editing `/etc/item-management.env`:
 
 ```bash
-sudo systemctl restart ims-backend
-sudo systemctl status ims-backend --no-pager
-sudo journalctl -u ims-backend -n 100 --no-pager
+sudo systemctl restart item-management
+sudo systemctl status item-management --no-pager
+sudo journalctl -u item-management -n 100 --no-pager
 ```
 
 Environment files are read at process start, so a restart is required. Changing `JWT_SECRET` signs everyone out. Changing `DB_URL` or `DB_PASSWORD` requires the new database to be reachable before restarting.
@@ -3471,7 +3525,7 @@ After editing the systemd unit:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart ims-backend
+sudo systemctl restart item-management
 ```
 
 ### 12.6 Deploying a new build (same version or a new version)
@@ -3480,10 +3534,10 @@ Frontend only:
 
 ```bash
 # Build locally, upload dist/ contents to /tmp/ims-web, then:
-sudo rsync -a --delete /tmp/ims-web/ /opt/ims/web/
-sudo chown -R root:www-data /opt/ims/web
-sudo find /opt/ims/web -type d -exec chmod 755 {} \;
-sudo find /opt/ims/web -type f -exec chmod 644 {} \;
+sudo rsync -a --delete /tmp/ims-web/ /var/www/item-management/
+sudo chown -R root:www-data /var/www/item-management
+sudo find /var/www/item-management -type d -exec chmod 755 {} \;
+sudo find /var/www/item-management -type f -exec chmod 644 {} \;
 ```
 
 No NGINX reload is required for static file replacement, but `index.html` is served with `no-store`, so users get the new version on refresh.
@@ -3491,18 +3545,15 @@ No NGINX reload is required for static file replacement, but `index.html` is ser
 Backend:
 
 ```bash
-sudo systemctl stop ims-backend
-sudo install -o ims -g ims -m 640 \
+sudo systemctl stop item-management
+sudo install -o ims -g ims -m 0640 \
   /tmp/item-management-backend-<version>.jar \
-  /opt/ims/app/item-management-backend-<version>.jar
-# Update the ExecStart path if the filename/version changed:
-sudo systemctl edit --full ims-backend
-sudo systemctl daemon-reload
-sudo systemctl start ims-backend
-sudo journalctl -u ims-backend -n 100 --no-pager
+  /opt/item-management/backend/item-management.jar
+sudo systemctl start item-management
+sudo journalctl -u item-management -n 100 --no-pager
 ```
 
-If the version changes, update the unit's `ExecStart` path or keep a stable copy/symlink. This document deploys version `1.0.0`, so the path is `item-management-backend-1.0.0.jar`.
+The installed filename is always `/opt/item-management/backend/item-management.jar`, so the unit's `ExecStart` never changes between releases. The deployment scripts keep the previous jar as a timestamped rollback copy. If you install by hand, copy the current jar to `item-management.jar.bak-<timestamp>` first.
 
 Database migrations are applied by Flyway on startup when `SPRING_FLYWAY_ENABLED=true`. Never run a manual schema change against a Flyway-managed database. Back up the database before deploying a build that contains new migrations.
 
@@ -3512,7 +3563,7 @@ Recommended order:
 
 ```bash
 sudo systemctl stop nginx          # optional; stops public access
-sudo systemctl stop ims-backend
+sudo systemctl stop item-management
 sudo systemctl stop postgresql     # only if the database must be offline
 ```
 
@@ -3520,7 +3571,7 @@ Start in reverse order:
 
 ```bash
 sudo systemctl start postgresql
-sudo systemctl start ims-backend
+sudo systemctl start item-management
 sudo systemctl start nginx
 ```
 
@@ -3537,12 +3588,12 @@ sudo reboot
 Reconnect and verify:
 
 ```bash
-systemctl is-active postgresql ims-backend nginx
+systemctl is-active postgresql item-management nginx
 curl -I https://app.mydomain.com/
 curl -i https://api.mydomain.com/api/auth/me
 ```
 
-All three services must be `active`, the SPA must return 200, and the API must return 401 JSON. If the backend does not start after reboot, check `journalctl -u ims-backend -b` and the `After`/`Requires` ordering.
+All three services must be `active`, the SPA must return 200, and the API must return 401 JSON. If the backend does not start after reboot, check `journalctl -u item-management -b` and the `After`/`Requires` ordering.
 
 ### 12.9 Do not run the JAR manually as the permanent service
 
@@ -3682,7 +3733,7 @@ The backend derives the store from the JWT and database records. Do not test iso
 | "Store code already exists" | The code is used by another store | Choose a different code |
 | Owner cannot log in | Wrong store code, wrong username, or inactive store/user | Check the store status and user status; use the exact store code |
 | GST is always intra-state | Branch state is blank | Set the branch state in Settings → Branches |
-| Onboarding fails with a database error | Database constraint or connection problem | Check `journalctl -u ims-backend` and the PostgreSQL log; the transaction rolled back |
+| Onboarding fails with a database error | Database constraint or connection problem | Check `journalctl -u item-management` and the PostgreSQL log; the transaction rolled back |
 
 ---
 
@@ -3692,10 +3743,10 @@ The backend derives the store from the JWT and database records. Do not test iso
 
 | Item | Why | Frequency |
 |---|---|---|
-| PostgreSQL database `item_management_db` | All stores, users, items, stock, sales, purchases, audits | Daily minimum; more often for high transaction volume |
-| `/opt/ims/config/ims.env` | Database/JWT/CORS configuration | On every change, encrypted |
+| PostgreSQL database `item_management_prod` | All stores, users, items, stock, sales, purchases, audits | Daily minimum; more often for high transaction volume |
+| `/etc/item-management.env` | Database/JWT/CORS configuration | On every change, encrypted |
 | `/etc/nginx/sites-available/ims` | Reverse proxy, TLS and SPA configuration | On every change |
-| `/etc/systemd/system/ims-backend.service` | Service definition | On every change |
+| `/etc/systemd/system/item-management.service` | Service definition | On every change |
 | `/etc/letsencrypt/` | Certificates and renewal configuration | Included in server backup; Certbot can reissue |
 | Application JAR and `dist/` | Rebuildable from source, but useful for rollback | Each release |
 | Old embedded `.pgdata` (during migration) | Rollback copy | Until migration sign-off |
@@ -3704,24 +3755,24 @@ The database is the only irreplaceable business asset. The rest can be rebuilt o
 
 ### 14.2 Daily database backup script
 
-Create `/opt/ims/backups/backup-ims.sh`:
+Create `/usr/local/sbin/item-management-backup.sh`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-BACKUP_DIR="/opt/ims/backups"
+BACKUP_DIR="/var/backups/item-management"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-FILE="$BACKUP_DIR/item_management_db_$STAMP.dump"
-LIST="$BACKUP_DIR/item_management_db_$STAMP.list"
+FILE="$BACKUP_DIR/item_management_prod_$STAMP.dump"
+LIST="$BACKUP_DIR/item_management_prod_$STAMP.list"
 
-export PGPASSFILE="/opt/ims/config/pgpass"
+export PGPASSFILE="/var/backups/item-management/.pgpass"
 
 pg_dump \
   --host=127.0.0.1 \
   --port=5432 \
-  --username=ims_app \
-  --dbname=item_management_db \
+  --username=ims_user \
+  --dbname=item_management_prod \
   --format=custom \
   --compress=9 \
   --no-owner \
@@ -3732,9 +3783,9 @@ pg_restore --list "$FILE" > "$LIST"
 sha256sum "$FILE" > "$FILE.sha256"
 
 # Keep 30 days. Adjust the retention to your policy.
-find "$BACKUP_DIR" -type f -name 'item_management_db_*.dump' -mtime +30 -delete
-find "$BACKUP_DIR" -type f -name 'item_management_db_*.list' -mtime +30 -delete
-find "$BACKUP_DIR" -type f -name 'item_management_db_*.dump.sha256' -mtime +30 -delete
+find "$BACKUP_DIR" -type f -name 'item_management_prod_*.dump' -mtime +30 -delete
+find "$BACKUP_DIR" -type f -name 'item_management_prod_*.list' -mtime +30 -delete
+find "$BACKUP_DIR" -type f -name 'item_management_prod_*.dump.sha256' -mtime +30 -delete
 
 echo "$(date -u +%FT%TZ) backup ok: $FILE"
 ```
@@ -3742,13 +3793,13 @@ echo "$(date -u +%FT%TZ) backup ok: $FILE"
 Install and test:
 
 ```bash
-sudo chown ims:ims /opt/ims/backups/backup-ims.sh
-sudo chmod 750 /opt/ims/backups/backup-ims.sh
-sudo -u ims /opt/ims/backups/backup-ims.sh
-ls -lh /opt/ims/backups/
+sudo chown ims:ims /usr/local/sbin/item-management-backup.sh
+sudo chmod 750 /usr/local/sbin/item-management-backup.sh
+sudo -u ims /usr/local/sbin/item-management-backup.sh
+ls -lh /var/backups/item-management/
 ```
 
-The script uses `/opt/ims/config/pgpass` (created in Section 8.4) so no password appears in the cron command or process list. The dump is a custom-format PostgreSQL archive containing schema, data, sequences and `flyway_schema_history`. `--no-owner`/`--no-privileges` make it portable to the `ims_app` owner on restore.
+The script uses `/var/backups/item-management/.pgpass` (created in Section 8.4) so no password appears in the cron command or process list. The dump is a custom-format PostgreSQL archive containing schema, data, sequences and `flyway_schema_history`. `--no-owner`/`--no-privileges` make it portable to the `ims_user` owner on restore.
 
 ### 14.3 Schedule the backup with cron
 
@@ -3761,14 +3812,14 @@ sudo crontab -u ims -e
 Add:
 
 ```cron
-0 2 * * * /opt/ims/backups/backup-ims.sh >> /opt/ims/logs/backup.log 2>&1
+0 2 * * * /usr/local/sbin/item-management-backup.sh >> /var/log/item-management/backup.log 2>&1
 ```
 
 This runs daily at 02:00 server time (UTC if you followed Section 2.2). Confirm:
 
 ```bash
 sudo crontab -u ims -l
-sudo -u ims tail -n 20 /opt/ims/logs/backup.log
+sudo -u ims tail -n 20 /var/log/item-management/backup.log
 ```
 
 The log directory must be writable by `ims`; Section 8 sets that. Add a logrotate rule if the log grows, or send the output to journald with `logger` instead.
@@ -3778,7 +3829,7 @@ The log directory must be writable by `ims`; Section 8 sets that. Add a logrotat
 A dump that has never been listed or restored is not a verified backup. For each run:
 
 ```bash
-LATEST="$(ls -1t /opt/ims/backups/item_management_db_*.dump | head -1)"
+LATEST="$(ls -1t /var/backups/item-management/item_management_prod_*.dump | head -1)"
 echo "$LATEST"
 pg_restore --list "$LATEST" | head -30
 pg_restore --list "$LATEST" | grep -c 'TABLE DATA'   # expect 24
@@ -3792,24 +3843,24 @@ sha256sum -c "$LATEST.sha256"
 Restore the latest dump into a separate database and verify it. This does not touch production.
 
 ```bash
-LATEST="$(ls -1t /opt/ims/backups/item_management_db_*.dump | head -1)"
+LATEST="$(ls -1t /var/backups/item-management/item_management_prod_*.dump | head -1)"
 
-sudo -u postgres dropdb --if-exists item_management_db_restoretest
-sudo -u postgres createdb -O ims_app item_management_db_restoretest
+sudo -u postgres dropdb --if-exists item_management_prod_restoretest
+sudo -u postgres createdb -O ims_user item_management_prod_restoretest
 
-PGPASSFILE=/opt/ims/config/pgpass pg_restore \
-  --host=127.0.0.1 --port=5432 --username=ims_app \
-  --dbname=item_management_db_restoretest \
+PGPASSFILE=/var/backups/item-management/.pgpass pg_restore \
+  --host=127.0.0.1 --port=5432 --username=ims_user \
+  --dbname=item_management_prod_restoretest \
   --no-owner --no-privileges --single-transaction --exit-on-error \
   "$LATEST"
 
-PGPASSFILE=/opt/ims/config/pgpass psql \
-  "host=127.0.0.1 port=5432 dbname=item_management_db_restoretest user=ims_app" \
+PGPASSFILE=/var/backups/item-management/.pgpass psql \
+  "host=127.0.0.1 port=5432 dbname=item_management_prod_restoretest user=ims_user" \
   -c "SELECT count(*) AS stores FROM stores;" \
   -c "SELECT count(*) AS sales FROM sales;" \
   -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;"
 
-sudo -u postgres dropdb item_management_db_restoretest
+sudo -u postgres dropdb item_management_prod_restoretest
 ```
 
 Record the counts and the date. A monthly automated test that reports row counts is better than a manual check that is skipped.
@@ -3821,13 +3872,13 @@ This is destructive to the current database. Use it only after a failure or duri
 1. Stop the backend so no new writes occur:
 
 ```bash
-sudo systemctl stop ims-backend
+sudo systemctl stop item-management
 ```
 
 2. If the database is reachable, take an emergency dump before replacing it:
 
 ```bash
-sudo -u ims /opt/ims/backups/backup-ims.sh
+sudo -u ims /usr/local/sbin/item-management-backup.sh
 ```
 
 3. Terminate remaining connections and recreate the database. `dropdb` deletes the current database; confirm the dump you are restoring is valid first.
@@ -3836,33 +3887,33 @@ sudo -u ims /opt/ims/backups/backup-ims.sh
 sudo -u postgres psql -d postgres -c "
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
-WHERE datname = 'item_management_db'
+WHERE datname = 'item_management_prod'
   AND pid <> pg_backend_pid();"
 
-sudo -u postgres dropdb --if-exists item_management_db
-sudo -u postgres createdb -O ims_app item_management_db
+sudo -u postgres dropdb --if-exists item_management_prod
+sudo -u postgres createdb -O ims_user item_management_prod
 ```
 
 4. Restore the schema owner and session defaults that script 01 sets:
 
 ```bash
-sudo -u postgres psql -d item_management_db -c "
-ALTER SCHEMA public OWNER TO ims_app;
+sudo -u postgres psql -d item_management_prod -c "
+ALTER SCHEMA public OWNER TO ims_user;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE, CREATE ON SCHEMA public TO ims_app;
-ALTER DATABASE item_management_db SET timezone TO 'UTC';
-ALTER DATABASE item_management_db SET statement_timeout TO '60s';
-ALTER DATABASE item_management_db SET idle_in_transaction_session_timeout TO '120s';"
+GRANT USAGE, CREATE ON SCHEMA public TO ims_user;
+ALTER DATABASE item_management_prod SET timezone TO 'UTC';
+ALTER DATABASE item_management_prod SET statement_timeout TO '60s';
+ALTER DATABASE item_management_prod SET idle_in_transaction_session_timeout TO '120s';"
 ```
 
 5. Restore the dump:
 
 ```bash
-RESTORE="/opt/ims/backups/item_management_db_YYYYMMDDTHHMMSSZ.dump"
+RESTORE="/var/backups/item-management/item_management_prod_YYYYMMDDTHHMMSSZ.dump"
 
-PGPASSFILE=/opt/ims/config/pgpass pg_restore \
-  --host=127.0.0.1 --port=5432 --username=ims_app \
-  --dbname=item_management_db \
+PGPASSFILE=/var/backups/item-management/.pgpass pg_restore \
+  --host=127.0.0.1 --port=5432 --username=ims_user \
+  --dbname=item_management_prod \
   --no-owner --no-privileges --single-transaction --exit-on-error \
   "$RESTORE"
 ```
@@ -3870,8 +3921,8 @@ PGPASSFILE=/opt/ims/config/pgpass pg_restore \
 6. Verify before starting the application:
 
 ```bash
-PGPASSFILE=/opt/ims/config/pgpass psql \
-  "host=127.0.0.1 port=5432 dbname=item_management_db user=ims_app" \
+PGPASSFILE=/var/backups/item-management/.pgpass psql \
+  "host=127.0.0.1 port=5432 dbname=item_management_prod user=ims_user" \
   -c "SELECT version, success FROM flyway_schema_history ORDER BY installed_rank;" \
   -c "SELECT count(*) FROM stores;" \
   -c "SELECT count(*) FROM sales;"
@@ -3880,8 +3931,8 @@ PGPASSFILE=/opt/ims/config/pgpass psql \
 7. Start the backend and check the log:
 
 ```bash
-sudo systemctl start ims-backend
-sudo journalctl -u ims-backend -n 100 --no-pager
+sudo systemctl start item-management
+sudo journalctl -u item-management -n 100 --no-pager
 ```
 
 8. Sign in as Platform Owner and as a store owner, and verify a recent sale/purchase and stock figure.
@@ -3894,7 +3945,7 @@ A backup on the same disk does not survive disk loss, ransomware, or a deleted s
 
 ```bash
 # Example: copy to another host you control
-rsync -avz /opt/ims/backups/ backup@backup-host:/srv/ims-backups/
+rsync -avz /var/backups/item-management/ backup@backup-host:/srv/ims-backups/
 ```
 
 For cloud storage, use your provider's CLI or `rclone`, with a credential that can write only to the backup bucket. Encrypt dumps before they leave the server if the destination is not fully trusted:
@@ -3911,10 +3962,10 @@ Use `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` and a PowerShell script sch
 
 ```powershell
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-$file  = "C:\ims\backups\item_management_db_$stamp.dump"
+$file  = "C:\ims\backups\item_management_prod_$stamp.dump"
 $env:PGPASSFILE = "C:\ims\config\pgpass"
 & "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe" `
-  --host=127.0.0.1 --port=5432 --username=ims_app --dbname=item_management_db `
+  --host=127.0.0.1 --port=5432 --username=ims_user --dbname=item_management_prod `
   --format=custom --compress=9 --no-owner --no-privileges --file=$file
 & "C:\Program Files\PostgreSQL\16\bin\pg_restore.exe" --list $file > "$file.list"
 $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
@@ -3979,22 +4030,22 @@ systemctl is-enabled postgresql
 pg_lsclusters
 ```
 
-- [ ] The application connects as `ims_app`, not `postgres`:
+- [ ] The application connects as `ims_user`, not `postgres`:
 
 ```sql
 SELECT usename, application_name, client_addr
 FROM pg_stat_activity
-WHERE datname = 'item_management_db';
+WHERE datname = 'item_management_prod';
 ```
 
-Expected: `ims_app` with `127.0.0.1`. You should not see the application connected as `postgres`.
+Expected: `ims_user` with `127.0.0.1`. You should not see the application connected as `postgres`.
 
-- [ ] `ims_app` is not a superuser:
+- [ ] `ims_user` is not a superuser:
 
 ```sql
 SELECT rolname, rolsuper, rolcreatedb, rolcreaterole
 FROM pg_roles
-WHERE rolname = 'ims_app';
+WHERE rolname = 'ims_user';
 ```
 
 Expected: all three privilege columns `false`.
@@ -4058,7 +4109,7 @@ WHERE r.store_id IS NULL
 GROUP BY r.code;                    -- PLATFORM_ADMIN = 3
 ```
 
-- [ ] On the Flyway path, V1-V3 are recorded and successful:
+- [ ] On the Flyway path, V1-V11 are recorded and successful:
 
 ```sql
 SELECT installed_rank, version, description, success
@@ -4066,8 +4117,8 @@ FROM flyway_schema_history
 ORDER BY installed_rank;
 ```
 
-- [ ] On the manual path, Flyway is disabled and `flyway_schema_history` does not exist. Confirm `SPRING_FLYWAY_ENABLED=false` in `ims.env`.
-- [ ] The database name is exactly `item_management_db`; there are no per-store databases:
+- [ ] On the manual path, Flyway is disabled and `flyway_schema_history` does not exist. Confirm `SPRING_FLYWAY_ENABLED=false` in `/etc/item-management.env`.
+- [ ] The database name is exactly `item_management_prod`; there are no per-store databases:
 
 ```sql
 SELECT datname FROM pg_database WHERE datname LIKE 'item_management%';
@@ -4080,25 +4131,25 @@ SELECT datname FROM pg_database WHERE datname LIKE 'item_management%';
 - [ ] The service is active and enabled:
 
 ```bash
-systemctl is-active ims-backend
-systemctl is-enabled ims-backend
-sudo systemctl status ims-backend --no-pager
+systemctl is-active item-management
+systemctl is-enabled item-management
+sudo systemctl status item-management --no-pager
 ```
 
 - [ ] The environment file has the correct ownership and mode:
 
 ```bash
-sudo stat -c '%U:%G %a %n' /opt/ims/config/ims.env
+sudo stat -c '%U:%G %a %n' /etc/item-management.env
 ```
 
-Expected: `root:ims 640`.
+Expected: `root:root 600`. The file is read by systemd as root before the service drops to `ims`.
 
 - [ ] The production profile and database settings are loaded:
 
 ```bash
-PID="$(pgrep -f 'item-management-backend-1.0.0.jar' | head -1)"
+PID="$(pgrep -f 'item-management.jar' | head -1)"
 sudo tr '\0' '\n' < "/proc/$PID/environ" \
-  | grep -E '^(SPRING_PROFILES_ACTIVE|EMBEDDED_POSTGRES|SEED_DEMO|SERVER_ADDRESS|SERVER_PORT|DB_URL|DB_USERNAME)='
+  | grep -E '^(SPRING_PROFILES_ACTIVE|EMBEDDED_POSTGRES|SEED_DEMO|SERVER_ADDRESS|SERVER_PORT|DB_URL|DB_USERNAME|AUTH_COOKIE_SECURE|CORS_ORIGINS)='
 ```
 
 Expected:
@@ -4109,16 +4160,26 @@ EMBEDDED_POSTGRES=false
 SEED_DEMO=false
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
-DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db
-DB_USERNAME=ims_app
+DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod
+DB_USERNAME=ims_user
+AUTH_COOKIE_SECURE=true
+CORS_ORIGINS=https://your-domain
 ```
 
 Do not print `DB_PASSWORD` or `JWT_SECRET` to the terminal or to a ticket.
 
+- [ ] The rate-limit groups are either absent (defaults apply) or set deliberately:
+
+```bash
+grep -E '^(LOGIN_MAX_ATTEMPTS|LOGIN_WINDOW_SECONDS|LOGIN_LOCKOUT_SECONDS|LOGIN_IP_MAX_ATTEMPTS|LOGIN_IP_WINDOW_SECONDS|LOGIN_IP_LOCKOUT_SECONDS|LOGIN_MAX_TRACKED_KEYS|LOGIN_STATE_CLEANUP_MS|PAIRING_MAX_ATTEMPTS|PAIRING_WINDOW_SECONDS|PAIRING_LOCKOUT_SECONDS)=' /etc/item-management.env
+```
+
+The effective defaults are the per-account `5 / 900 / 900`, the aggregate per-address `20 / 900 / 900`, and pairing `10 / 60 / 300`. A throttled sign-in returns HTTP 429 with a generic message; a throttled pairing request returns HTTP 429 with a pairing-specific message. Neither response reveals whether an account exists.
+
 - [ ] `JWT_SECRET` is not the development default. Check its length without printing it:
 
 ```bash
-awk -F= '/^JWT_SECRET=/{print "JWT_SECRET length:", length($2)}' /opt/ims/config/ims.env
+awk -F= '/^JWT_SECRET=/{print "JWT_SECRET length:", length($2)}' /etc/item-management.env
 ```
 
 Expected: well above 32 characters; the recommended value is 96 hex characters.
@@ -4126,7 +4187,7 @@ Expected: well above 32 characters; the recommended value is 96 hex characters.
 - [ ] `SEED_DEMO=false` is present:
 
 ```bash
-grep -E '^SEED_DEMO=' /opt/ims/config/ims.env
+grep -E '^SEED_DEMO=' /etc/item-management.env
 ```
 
 - [ ] The local health endpoint returns 401 JSON:
@@ -4138,19 +4199,19 @@ curl -i http://127.0.0.1:8080/api/auth/me
 - [ ] The log has no startup errors:
 
 ```bash
-sudo journalctl -u ims-backend --since today -p err --no-pager
+sudo journalctl -u item-management --since today -p err --no-pager
 ```
 
 - [ ] Hibernate schema validation succeeded; there is no `Schema-validation` error.
-- [ ] Flyway either applied V1-V3 successfully on a new database or validated an existing history without re-running migrations.
+- [ ] Flyway either applied V1-V11 successfully on a new database or validated an existing history without re-running migrations.
 
 ### 15.4 Frontend, NGINX and TLS
 
-- [ ] `dist/` contents are in `/opt/ims/web`, with `index.html` at the root:
+- [ ] `dist/` contents are in `/var/www/item-management`, with `index.html` at the root:
 
 ```bash
-ls -l /opt/ims/web/index.html
-ls -ld /opt/ims/web/assets
+ls -l /var/www/item-management/index.html
+ls -ld /var/www/item-management/assets
 ```
 
 - [ ] NGINX configuration passes:
@@ -4187,7 +4248,7 @@ sudo certbot renew --dry-run
 
 ```bash
 curl -I https://app.mydomain.com/index.html
-curl -I https://app.mydomain.com/assets/$(basename "$(ls /opt/ims/web/assets/*.js | head -1)")
+curl -I https://app.mydomain.com/assets/$(basename "$(ls /var/www/item-management/assets/*.js | head -1)")
 ```
 
 - [ ] The SPA's API requests go to `/api/` on the same hostname. In the browser developer tools, the login request is `https://app.mydomain.com/api/auth/login`, not `https://api.mydomain.com/...`.
@@ -4243,7 +4304,7 @@ SELECT username, status FROM users WHERE store_id IS NULL ORDER BY username;
 - [ ] An off-site copy exists.
 - [ ] Log rotation is configured for the backend file log, if used.
 - [ ] The server has been rebooted and PostgreSQL, the backend and NGINX all returned automatically.
-- [ ] `journalctl -u ims-backend --since "24 hours ago" -p err` shows no unresolved errors.
+- [ ] `journalctl -u item-management --since "24 hours ago" -p err` shows no unresolved errors.
 - [ ] Disk usage is below 80 percent (`df -h`).
 - [ ] Memory usage leaves headroom for the JVM, PostgreSQL and NGINX (`free -h`).
 - [ ] Monitoring or an external uptime check watches `https://api.mydomain.com/api/auth/me` and the SPA URLs.
@@ -4270,7 +4331,7 @@ Do not declare the deployment complete until every row has a result and every fa
 
 ## Appendix A – Windows Server alternative
 
-This appendix is a complete alternative to the Ubuntu path. The application, database schema and configuration keys are identical. Only operating-system commands and paths differ.
+This appendix is a complete alternative to the Ubuntu path. The application, database schema and configuration keys are identical. Only operating-system commands and paths differ. Windows uses its own layout (`C:\ims\...`); the documented production installation uses the Linux layout in Sections 3.5 and 8, so do not mix paths from the two appendices.
 
 ### A.1 Install Windows Server and prerequisites
 
@@ -4326,7 +4387,7 @@ Script 01 contains `\connect`, which psql understands. For pgAdmin, use the spli
 Test:
 
 ```powershell
-& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -h 127.0.0.1 -U ims_app -d item_management_db -c "SELECT current_user, current_database();"
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" -h 127.0.0.1 -U ims_user -d item_management_prod -c "SELECT current_user, current_database();"
 ```
 
 ### A.4 Build or copy the application
@@ -4360,8 +4421,8 @@ SPRING_PROFILES_ACTIVE=postgres
 EMBEDDED_POSTGRES=false
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
-DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db
-DB_USERNAME=ims_app
+DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod
+DB_USERNAME=ims_user
 DB_PASSWORD=[DB PASSWORD]
 DB_POOL_SIZE=15
 SPRING_FLYWAY_ENABLED=true
@@ -4369,7 +4430,7 @@ SEED_DEMO=false
 JWT_SECRET=[JWT SECRET]
 JWT_EXPIRATION_MS=43200000
 CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com,https://api.mydomain.com
-LOGGING_FILE_NAME=C:/ims/logs/ims-backend.log
+LOGGING_FILE_NAME=C:/ims/logs/item-management.log
 ```
 
 Generate secrets with PowerShell or OpenSSL:
@@ -4408,8 +4469,8 @@ $java = "C:\Program Files\Eclipse Adoptium\jdk-17.0.x-hotspot\bin\java.exe"
 nssm install IMSBackend $java "-Xms256m -Xmx1024m -jar C:\ims\app\item-management-backend-1.0.0.jar"
 nssm set IMSBackend AppDirectory "C:\ims\app"
 nssm set IMSBackend Start SERVICE_AUTO_START
-nssm set IMSBackend AppStdout "C:\ims\logs\ims-backend.out.log"
-nssm set IMSBackend AppStderr "C:\ims\logs\ims-backend.err.log"
+nssm set IMSBackend AppStdout "C:\ims\logs\item-management.out.log"
+nssm set IMSBackend AppStderr "C:\ims\logs\item-management.err.log"
 nssm set IMSBackend AppRotateFiles 1
 nssm set IMSBackend AppRotateOnline 1
 nssm set IMSBackend AppRotateBytes 10485760
@@ -4423,8 +4484,8 @@ nssm set IMSBackend AppEnvironmentExtra `
   "EMBEDDED_POSTGRES=false" `
   "SERVER_ADDRESS=127.0.0.1" `
   "SERVER_PORT=8080" `
-  "DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_db" `
-  "DB_USERNAME=ims_app" `
+  "DB_URL=jdbc:postgresql://127.0.0.1:5432/item_management_prod" `
+  "DB_USERNAME=ims_user" `
   "DB_PASSWORD=[DB PASSWORD]" `
   "DB_POOL_SIZE=15" `
   "SPRING_FLYWAY_ENABLED=true" `
@@ -4432,7 +4493,7 @@ nssm set IMSBackend AppEnvironmentExtra `
   "JWT_SECRET=[JWT SECRET]" `
   "JWT_EXPIRATION_MS=43200000" `
   "CORS_ORIGINS=https://admin.mydomain.com,https://app.mydomain.com,https://api.mydomain.com" `
-  "LOGGING_FILE_NAME=C:/ims/logs/ims-backend.log"
+  "LOGGING_FILE_NAME=C:/ims/logs/item-management.log"
 ```
 
 NSSM stores these values in the service configuration, readable by local administrators. Restrict administrator access and do not copy the service configuration to an untrusted machine. An alternative is a `start-ims.cmd` wrapper with `set` lines and `java -jar`; NSSM runs the wrapper. The wrapper must also be ACL-restricted.
@@ -4449,8 +4510,8 @@ If the service fails to start, check:
 
 ```powershell
 nssm status IMSBackend
-Get-Content C:\ims\logs\ims-backend.err.log -Tail 100
-Get-Content C:\ims\logs\ims-backend.out.log -Tail 100
+Get-Content C:\ims\logs\item-management.err.log -Tail 100
+Get-Content C:\ims\logs\item-management.out.log -Tail 100
 ```
 
 The `ims` account needs read access to `C:\ims\app`, `C:\ims\config`, and write access to `C:\ims\logs`. Grant it explicitly:
@@ -4492,7 +4553,7 @@ http {
             proxy_pass http://ims_backend;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
@@ -4509,7 +4570,7 @@ http {
             proxy_pass http://ims_backend;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;
         }
     }
@@ -4584,8 +4645,8 @@ Stop-Service IMSBackend
 Restart-Service IMSBackend
 Set-Service IMSBackend -StartupType Automatic
 
-Get-Content C:\ims\logs\ims-backend.out.log -Tail 100 -Wait
-Get-Content C:\ims\logs\ims-backend.err.log -Tail 100
+Get-Content C:\ims\logs\item-management.out.log -Tail 100 -Wait
+Get-Content C:\ims\logs\item-management.err.log -Tail 100
 ```
 
 Health check:
@@ -4612,7 +4673,7 @@ Test a restore into a scratch database before relying on the task. Keep an off-s
 |---|---|---|
 | Service manager | systemd | Windows Services + NSSM |
 | Java path | `/usr/bin/java` | `C:\Program Files\Eclipse Adoptium\...\bin\java.exe` |
-| App path | `/opt/ims` | `C:\ims` |
+| App path | `/opt/item-management` | `C:\ims` |
 | NGINX config | `/etc/nginx/sites-available/ims` | `C:\nginx\conf\nginx.conf` |
 | PostgreSQL tools | `/usr/bin/pg_dump` | `C:\Program Files\PostgreSQL\16\bin\pg_dump.exe` |
 | TLS | Certbot | win-acme |
@@ -4629,8 +4690,8 @@ Test a restore into a scratch database before relying on the task. Keep an off-s
 The browser reaches NGINX, but NGINX cannot reach the backend.
 
 ```bash
-sudo systemctl status ims-backend --no-pager
-sudo journalctl -u ims-backend -n 100 --no-pager
+sudo systemctl status item-management --no-pager
+sudo journalctl -u item-management -n 100 --no-pager
 sudo ss -ltnp | grep ':8080'
 curl -i http://127.0.0.1:8080/api/auth/me
 ```
@@ -4685,16 +4746,16 @@ Schema-validation: missing table [stores]
 
 The database is empty or the manual scripts did not complete. Run Flyway (empty DB, Flyway enabled) or scripts 02-04 (manual path), then restart. Do not set `ddl-auto=update`; the application is configured for `validate`, and changing it would create an unmanaged schema.
 
-### B.6 `password authentication failed for user "ims_app"`
+### B.6 `password authentication failed for user "ims_user"`
 
-- The password in `ims.env` does not match the database role.
+- The password in `/etc/item-management.env` does not match the database role.
 - Reset it as the PostgreSQL superuser:
 
 ```bash
-sudo -u postgres psql -c "ALTER ROLE ims_app WITH PASSWORD '[NEW DB PASSWORD]';"
+sudo -u postgres psql -c "ALTER ROLE ims_user WITH PASSWORD '[NEW DB PASSWORD]';"
 ```
 
-Then update `DB_PASSWORD` in `ims.env` and the `pgpass` file, and restart the backend. Use a password without shell-special characters, or quote it correctly.
+Then update `DB_PASSWORD` in `/etc/item-management.env` and in `/var/backups/item-management/.pgpass`, and restart the backend. Use a password without shell-special characters, or quote it correctly.
 
 - Confirm `pg_hba.conf` uses `scram-sha-256` for `127.0.0.1/32`, and reload PostgreSQL.
 - Confirm you are connecting to `127.0.0.1`, not an old PostgreSQL instance on another port.
@@ -4715,7 +4776,7 @@ Start the cluster, fix `listen_addresses`, or correct `DB_URL`. The application 
 sudo ss -ltnp | grep ':8080'
 ```
 
-Stop the other process. It may be an old manually started JAR or a second service instance. Do not kill an unknown process without identifying it. If it is the service, use `systemctl restart ims-backend`; if it is a manual `java -jar`, stop that process.
+Stop the other process. It may be an old manually started JAR or a second service instance. Do not kill an unknown process without identifying it. If it is the service, use `systemctl restart item-management`; if it is a manual `java -jar`, stop that process.
 
 ### B.9 `status=203/EXEC` or service cannot find Java
 
@@ -4723,19 +4784,19 @@ Stop the other process. It may be an old manually started JAR or a second servic
 - The JAR path is wrong or the file is not readable by `ims`. Check:
 
 ```bash
-sudo -u ims test -r /opt/ims/app/item-management-backend-1.0.0.jar && echo readable
+sudo -u ims test -r /opt/item-management/backend/item-management.jar && echo readable
 ```
 
 - After editing the unit: `sudo systemctl daemon-reload`.
 
 ### B.10 Service starts but cannot write the log file
 
-`ProtectSystem=full` and `ReadWritePaths` restrict writes. Confirm the log path is under `/opt/ims/logs` and that the directory is owned by `ims`. If you change `LOGGING_FILE_NAME`, add the new directory to `ReadWritePaths` and run `daemon-reload`.
+`ProtectSystem=full` and `ReadWritePaths` restrict writes. Confirm the log path is under `/var/log/item-management` and that the directory is owned by `ims`. If you change `LOGGING_FILE_NAME`, add the new directory to `ReadWritePaths` and run `daemon-reload`.
 
 ### B.11 Blank page or old frontend after deployment
 
-- Confirm `/opt/ims/web/index.html` exists.
-- Confirm NGINX `root` is `/opt/ims/web`, not `/opt/ims/web/dist`.
+- Confirm `/var/www/item-management/index.html` exists.
+- Confirm NGINX `root` is `/var/www/item-management`, not `/var/www/item-management/dist`.
 - Confirm `try_files $uri $uri/ /index.html;` is present.
 - Check the browser console and the Network tab for 404s on `/assets/...`.
 - Hard-refresh or clear the site cache. `index.html` is `no-store`, but a proxy or browser can still cache it incorrectly.
@@ -4789,7 +4850,7 @@ Check:
 
 ```bash
 df -h
-sudo du -sh /opt/ims/backups /opt/ims/logs /var/log 2>/dev/null
+sudo du -sh /var/backups/item-management /var/log/item-management /var/log 2>/dev/null
 ```
 
 Reduce backup retention, rotate logs, and move off-site copies off the server. Do not delete the current database files to free space.
@@ -4806,14 +4867,14 @@ Set UTC on the server. The application stores UTC timestamps and formats them fo
 
 | Component | Command |
 |---|---|
-| Backend application log | `sudo journalctl -u ims-backend -n 200 --no-pager` |
-| Backend errors only | `sudo journalctl -u ims-backend -p err --since today` |
+| Backend application log | `sudo journalctl -u item-management -n 200 --no-pager` |
+| Backend errors only | `sudo journalctl -u item-management -p err --since today` |
 | PostgreSQL log | `/var/log/postgresql/postgresql-16-main.log` |
 | NGINX access/error | `/var/log/nginx/access.log`, `/var/log/nginx/error.log` |
 | Certificate issuance | `/var/log/letsencrypt/letsencrypt.log` |
-| Service state | `systemctl status postgresql ims-backend nginx` |
+| Service state | `systemctl status postgresql item-management nginx` |
 | Ports | `sudo ss -ltnp` |
-| Database connectivity | `psql "host=127.0.0.1 dbname=item_management_db user=ims_app" -c "select 1"` |
+| Database connectivity | `psql "host=127.0.0.1 dbname=item_management_prod user=ims_user" -c "select 1"` |
 
 ---
 
@@ -4836,14 +4897,14 @@ scp build/libs/item-management-backend-1.0.0.jar deploy@[SERVER IP]:/tmp/
 ### C.2 Install artifacts on the server
 
 ```bash
-sudo rsync -a --delete /tmp/ims-web/ /opt/ims/web/
-sudo chown -R root:www-data /opt/ims/web
-sudo find /opt/ims/web -type d -exec chmod 755 {} \;
-sudo find /opt/ims/web -type f -exec chmod 644 {} \;
+sudo rsync -a --delete /tmp/ims-web/ /var/www/item-management/
+sudo chown -R root:www-data /var/www/item-management
+sudo find /var/www/item-management -type d -exec chmod 755 {} \;
+sudo find /var/www/item-management -type f -exec chmod 644 {} \;
 
 sudo install -o ims -g ims -m 640 \
   /tmp/item-management-backend-1.0.0.jar \
-  /opt/ims/app/item-management-backend-1.0.0.jar
+  /opt/item-management/backend/item-management.jar
 ```
 
 ### C.3 Services
@@ -4851,11 +4912,11 @@ sudo install -o ims -g ims -m 640 \
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now postgresql
-sudo systemctl enable --now ims-backend
+sudo systemctl enable --now item-management
 sudo systemctl enable --now nginx
 
-sudo systemctl status postgresql ims-backend nginx --no-pager
-sudo systemctl restart ims-backend
+sudo systemctl status postgresql item-management nginx --no-pager
+sudo systemctl restart item-management
 sudo systemctl reload nginx
 ```
 
@@ -4864,24 +4925,24 @@ sudo systemctl reload nginx
 ```bash
 curl -i http://127.0.0.1:8080/api/auth/me
 curl -I https://app.mydomain.com/
-sudo journalctl -u ims-backend -f
-sudo journalctl -u ims-backend -p err --since today
+sudo journalctl -u item-management -f
+sudo journalctl -u item-management -p err --since today
 sudo tail -f /var/log/nginx/error.log
 ```
 
 ### C.5 Database
 
 ```bash
-sudo -u postgres psql -d item_management_db
-sudo -u postgres pg_dump -Fc -f /tmp/ims.dump item_management_db
+sudo -u postgres psql -d item_management_prod
+sudo -u postgres pg_dump -Fc -f /tmp/ims.dump item_management_prod
 sudo -u postgres pg_restore -l /tmp/ims.dump | head
 ```
 
 ### C.6 Backup
 
 ```bash
-sudo -u ims /opt/ims/backups/backup-ims.sh
-ls -lh /opt/ims/backups/
+sudo -u ims /usr/local/sbin/item-management-backup.sh
+ls -lh /var/backups/item-management/
 sudo -u ims crontab -l
 ```
 
@@ -4905,7 +4966,7 @@ sudo ufw status verbose
 ```bash
 openssl rand -hex 24   # database password
 openssl rand -hex 48   # JWT secret
-sudo stat -c '%U:%G %a %n' /opt/ims/config/ims.env
+sudo stat -c '%U:%G %a %n' /etc/item-management.env
 ```
 
 ### C.10 Database sanity queries

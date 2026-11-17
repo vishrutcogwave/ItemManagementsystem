@@ -27,7 +27,9 @@ Schema versions refer to `backend/src/main/resources/db/migration`.
   expired rows only. Login lockout with HTTP 429 (`LOGIN_*` settings).
 - Platform audit viewer with filters and CSV export (platform-only). Reset responses are `no-store`,
   require `confirm=true`, force a change and never audit the secret.
-- Public `/api/health` (database probe) and `/api/version` (build/Git commit, no secrets).
+- Public `/api/health` (database probe) and `/api/version` (application name/version only).
+  Deployment revision is available to platform administrators at `/api/platform/version` and from the
+  installed jar's embedded build-info.
 - Shared password policy used by registration, provisioning, reset and change.
 
 ### Database (V8 — additive)

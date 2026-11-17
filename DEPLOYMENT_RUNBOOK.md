@@ -155,9 +155,12 @@ $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 Set-Location ..\..
 ```
 
-Android release signing reads `bridges\android\keystore.properties`, which must reference the
-existing release keystore. Never regenerate or overwrite the keystore for an update: Android only
-installs an APK signed with the same key.
+Android release signing reads credentials only from `IMS_ANDROID_KEYSTORE_FILE`,
+`IMS_ANDROID_KEYSTORE_PASSWORD`, `IMS_ANDROID_KEY_ALIAS` and `IMS_ANDROID_KEY_PASSWORD` (optionally
+`IMS_ANDROID_KEYSTORE_TYPE`, or `IMS_ANDROID_SIGNING_PROPERTIES` pointing to a file outside the
+repository). The build fails before packaging when they are absent. Signing material is never stored
+in this repository. A changed key cannot update an installed APK: uninstall the old build first,
+then install the new-signer APK.
 
 Verify bridge artifacts:
 
@@ -580,7 +583,7 @@ Windows PC:
 3. Complete a small sale; receipt prints with no dialog; Print History shows `WINDOWS / AUTO / PRINTED`.
 
 Android tablet/phone:
-1. APK 1.0.0 installed; service notification visible; port `17778`.
+1. APK 1.0.1 installed; service notification visible; port `17778`.
 2. **Allowed website** set to `https://hiremathwebstudio.in`.
 3. Generate a pairing code in **Settings → Printers**, pair the device, confirm branch printers sync.
 4. Add the receipt printer IP/port `9100`, paper width, purpose; Test connection.

@@ -34,7 +34,9 @@ the fallback and for first-time setup.
        - `sudo /usr/local/sbin/ims-deploy-backend --commit <sha>`
        - `sudo /usr/local/sbin/ims-deploy-frontend --commit <sha>`
 7. [ ] Verify: `sudo /usr/local/sbin/ims-deploy-status`, then
-       `powershell -File deploy\windows\Test-DeploymentHealth.ps1 -ExpectedCommit <sha>`.
+       `powershell -File deploy\windows\Test-DeploymentHealth.ps1 -ExpectedCommit <sha>`
+       with a platform-admin bearer token in `IMS_ADMIN_TOKEN` (or `-AdminToken`); the public
+       `/api/version` no longer exposes the commit.
 8. [ ] Complete the functional smoke tests in §8 below.
 
 The backend orchestrator runs the existing `/usr/local/sbin/ims-create-deployment-backup` and
@@ -322,7 +324,9 @@ sudo -u postgres psql -d item_management_prod -c \
 ### 8.1 API
 
 - [ ] `POST /api/auth/login` returns a token and sets an `HttpOnly` `ims_auth` cookie.
-- [ ] `GET /api/health` returns 200 `{"status":"UP"}`; `GET /api/version` shows the deployed commit.
+- [ ] `GET /api/health` returns 200 `{"status":"UP"}`; `GET /api/version` shows only the application
+      name/version; `/api/platform/version` (platform admin) shows the deployed commit; anonymous and
+      store-user calls to `/api/platform/version` return 401/403.
 - [ ] `GET /api/items?page=0&size=5` returns 200 and items include `barcode` and `barcodeSource`.
 - [ ] `GET /api/items/barcode/{known-barcode}` returns the item.
 - [ ] `POST /api/items/{id}/barcode` with `{"format":"EAN13"}` returns a valid internal EAN-13.

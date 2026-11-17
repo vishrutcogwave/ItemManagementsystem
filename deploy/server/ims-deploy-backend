@@ -158,13 +158,19 @@ FW_AFTER=$(flyway_versions 2>/dev/null || true)
 PENDING_AFTER=$(pending_migrations 2>/dev/null || true)
 [ -z "$PENDING_AFTER" ] || fail "migrations still pending after startup: $PENDING_AFTER" 4
 
-runtime_commit=$(curl -fsS --max-time 10 "$IMS_VERSION_URL" 2>/dev/null \
-  | sed -n 's/.*"gitCommit"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+# The public /api/version no longer exposes the revision, so confirm the
+# installed jar's embedded build-info instead (same source as ims-deploy-status).
+runtime_commit=$(unzip -p "$IMS_JAR" 'META-INF/build-info.properties' 2>/dev/null || true)
+if [ -z "$runtime_commit" ]; then
+  runtime_commit=$(unzip -p "$IMS_JAR" 'BOOT-INF/classes/META-INF/build-info.properties' 2>/dev/null || true)
+fi
+runtime_commit=$(printf '%s\n' "$runtime_commit" \
+  | sed -n -e 's/^build\.git\.commit=//p' -e 's/^git\.commit=//p' | tr -d '\r' | head -1)
 if [ -n "$runtime_commit" ]; then
-  log "runtime git commit: $runtime_commit (expected prefix: ${M_SHORT})"
+  log "installed jar git commit: $runtime_commit (expected prefix: ${M_SHORT})"
   case $runtime_commit in
     "$M_COMMIT"|"$M_SHORT"*) ;;
-    *) log "WARN: runtime gitCommit differs from deployed commit (possible GIT_COMMIT env override)" ;;
+    *) log "WARN: installed jar git commit differs from deployed commit (possible GIT_COMMIT env override)" ;;
   esac
 fi
 set -e

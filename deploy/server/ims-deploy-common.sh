@@ -21,7 +21,6 @@ IMS_LOCK=${IMS_LOCK:-/var/lib/ims-deploy/.deploy.lock}
 IMS_DB_NAME=${IMS_DB_NAME:-item_management_prod}
 IMS_BACKUP_SCRIPT=${IMS_BACKUP_SCRIPT:-/usr/local/sbin/ims-create-deployment-backup}
 IMS_HEALTH_URL=${IMS_HEALTH_URL:-http://127.0.0.1:8080/api/health}
-IMS_VERSION_URL=${IMS_VERSION_URL:-http://127.0.0.1:8080/api/version}
 IMS_DOMAINS=${IMS_DOMAINS:-"https://hiremathwebstudio.in https://www.hiremathwebstudio.in"}
 IMS_BACKUP_KEEP=${IMS_BACKUP_KEEP:-2}
 IMS_DEPLOY_USER=${IMS_DEPLOY_USER:-deploy}

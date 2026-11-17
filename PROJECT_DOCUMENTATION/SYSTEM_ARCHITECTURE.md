@@ -313,7 +313,7 @@ Public (no JWT):
 - `POST /api/printing/devices/pair` (one-time pairing code)
 - `GET /api/printing/device/config` (`X-Device-Token`)
 - `GET /api/health` (database reachability, `503` when down)
-- `GET /api/version` (application version + build commit)
+- `GET /api/version` (application name + version only)
 - `/error`
 
 All other endpoints require a valid `ims_auth` cookie (or bearer token), an ACTIVE user and an

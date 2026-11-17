@@ -267,7 +267,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
     }
@@ -511,8 +511,9 @@ sudo rm -f /tmp/ims-health.json
 Expected: V1–V8 all successful; four printing tables; `barcode` NOT NULL; `items_missing_barcode = 0`;
 the unique index present; both printer permissions present; both new user columns present
 (`must_change_password` NOT NULL default false, `token_version` NOT NULL default 0); the
-`revoked_tokens` table present; `/api/health` returns `200` with `"status":"UP"` and the expected
-`gitCommit` in `/api/version`.
+`revoked_tokens` table present; `/api/health` returns `200` with `"status":"UP"`; `/api/version`
+returns only the application name and version; and a platform administrator can read the expected
+`gitCommit` and `buildTime` from `/api/platform/version`.
 
 ### 6.7 API and UI smoke tests
 
@@ -653,7 +654,9 @@ sudo -u postgres dropdb ims_restore_check
 sudo systemctl is-active item-management
 ss -ltnp | grep ':8080'
 curl -fsS https://REPLACE_WITH_DOMAIN/api/health            # 200 + {"status":"UP"}
-curl -fsS https://REPLACE_WITH_DOMAIN/api/version           # 200 + build/git commit
+curl -fsS https://REPLACE_WITH_DOMAIN/api/version           # 200 + name/version only
+curl -fsS -H "Authorization: Bearer $IMS_ADMIN_TOKEN" \
+  https://REPLACE_WITH_DOMAIN/api/platform/version          # 200 + build/git commit (platform admin)
 sudo -u postgres psql -d item_management_prod -c "SELECT COUNT(*) FROM flyway_schema_history WHERE success = false;"
 ```
 
@@ -719,7 +722,7 @@ Never delete audit, print or business history to free space without owner approv
 | Camera scan unavailable | unsupported browser or non-HTTPS | `BarcodeDetector` support | use Chrome/Edge on Android or Safari iOS; keep HTTPS |
 | Silent print opens a dialog | bridge not running / origin not allowlisted / job failed | Print History status | start bridge, add origin, retry manual print |
 | Print job stuck `PENDING` | bridge online but printer unreachable | Print History error message | fix printer IP/port; retry |
-| Android print fails after update | APK signed with a different key | install error | reinstall using the original release keystore |
+| Android print fails after update | APK signed with a different key | install error (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) | uninstall the old build, then install the new-signer APK; signing material is never stored in the repository |
 | Password reset “fails” | request sent without confirmation flag | API 400 | confirm the action in the UI |
 | `403 PASSWORD_CHANGE_REQUIRED` on every page | user was reset/provisioned and must choose a new password | response `code` | complete the forced password change screen; do not reset again |
 | `429 TOO_MANY_REQUESTS` at login | lockout after repeated failures | `LOGIN_*` settings | wait for the lockout window; check for a stale client retry loop |

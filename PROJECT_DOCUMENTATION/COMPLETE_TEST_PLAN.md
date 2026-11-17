@@ -218,7 +218,7 @@ Secrets: use test credentials only; never production passwords.
 | SEC-10 | A | Confirmation | Reset without `confirm=true` rejected |
 | SEC-11 | A | Credential tenant isolation | Platform operations constrained to eligible accounts; no cross-tenant credential access |
 | SEC-12 | A | JWT tampering | Modified/expired token → 401 |
-| SEC-13 | A | Public endpoints | Only login, register-store, bridge pair/config, `/api/health`, `/api/version`, `/error` are public |
+| SEC-13 | A | Public endpoints | Only login, register-store, bridge pair/config, `/api/health`, `/api/version` (name/version only), `/error` are public |
 | SEC-14 | M | Frontend state | After logout, no token or credential remains in visible state/storage beyond design |
 | SEC-15 | A | SQL injection | Parameterized queries; malicious search strings harmless |
 | SEC-16 | A | XSS | User-controlled names are escaped in React output; no `dangerouslySetInnerHTML` on user data |
