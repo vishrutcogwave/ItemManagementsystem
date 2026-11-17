@@ -1,0 +1,24 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+Disallow: /change-password
+Disallow: /pos
+Disallow: /sales
+Disallow: /items
+Disallow: /categories
+Disallow: /taxes
+Disallow: /units
+Disallow: /suppliers
+Disallow: /purchases
+Disallow: /supplier-payments
+Disallow: /inventory
+Disallow: /transfers
+Disallow: /low-stock
+Disallow: /reports
+Disallow: /print-history
+Disallow: /settings
+Disallow: /platform/
+
+Sitemap: https://hiremathwebstudio.in/sitemap.xml
