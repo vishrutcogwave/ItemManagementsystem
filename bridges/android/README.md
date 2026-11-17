@@ -78,11 +78,35 @@ or:
 .\build-apk.ps1
 ```
 
-The signed APK is written to `dist/ItemManagementPrintBridge.apk`.
+`assembleRelease` writes the signed APK to `app/build/outputs/apk/release/app-release.apk`;
+`build-apk.ps1` copies it to `dist/ItemManagementPrintBridge.apk`.
 
-Signing uses `keystore/printbridge-release.jks` with credentials in
-`keystore.properties`. Replace both before distributing publicly, keep the
-keystore backed up, and never share the password outside the store owner's team.
+Release signing credentials are never stored in this repository. Set these
+environment variables before building a release:
+
+| Variable | Meaning |
+| --- | --- |
+| `IMS_ANDROID_KEYSTORE_FILE` | absolute path to the release keystore, outside the repo |
+| `IMS_ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `IMS_ANDROID_KEY_ALIAS` | key alias |
+| `IMS_ANDROID_KEY_PASSWORD` | key password |
+| `IMS_ANDROID_KEYSTORE_TYPE` | optional, defaults to `PKCS12` |
+
+Alternatively set `IMS_ANDROID_SIGNING_PROPERTIES` to an absolute path of a
+properties file outside the repository containing `ims.storeFile`,
+`ims.storePassword`, `ims.keyAlias`, `ims.keyPassword` and optionally
+`ims.storeType`. `Properties.load` interprets backslash escapes and strips
+leading whitespace from values, so use the environment variables instead when a
+password contains leading spaces or backslashes.
+
+`assembleRelease` and `bundleRelease` fail before packaging when any required
+value is absent, and fail if the keystore or properties file is inside the
+repository. Passwords are never printed; never pass them on the Gradle command
+line because process arguments are visible to other users.
+
+The retired `keystore.properties` and `keystore/printbridge-release.jks` in this
+directory are compromised history, kept only as evidence. They are not read by
+the build.
 
 ## Troubleshooting
 

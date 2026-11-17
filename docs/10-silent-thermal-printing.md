@@ -113,7 +113,7 @@ Rebuild: `powershell -ExecutionPolicy Bypass -File bridges/windows/build-install
 ## 7. Android bridge
 
 Artifact: `bridges/android/dist/ItemManagementPrintBridge.apk` (signed release build; package
-`com.itemmanagement.printbridge`, version 1.0.0, minSdk 24, targetSdk 34).
+`com.itemmanagement.printbridge`, version 1.0.1, minSdk 24, targetSdk 34).
 
 Install and pair:
 
@@ -133,9 +133,10 @@ The app has no store UI: it only prints. The printer must be reachable from the 
 (stable IP recommended) and support ESC/POS on TCP 9100 (most Wi-Fi/LAN receipt printers do).
 
 Rebuild: open `bridges/android` in Android Studio or run
-`powershell -ExecutionPolicy Bypass -File bridges/android/build-apk.ps1`. Release signing uses
-`bridges/android/keystore.properties`. See `bridges/android/README.md` for details and the
-keystore certificate fingerprint.
+`powershell -ExecutionPolicy Bypass -File bridges/android/build-apk.ps1`. Release signing reads
+`IMS_ANDROID_*` environment variables, or an external properties file outside the repository. See
+`bridges/android/README.md`. Record the new signer's SHA-256 certificate fingerprint here after the
+replacement key is generated and verified.
 
 ## 8. Printer setup
 

@@ -22,6 +22,24 @@ backend/.pgdata
 deploy/windows/deploy.config.psd1
 deploy/.local/
 
+# Android signing material (never commit)
+bridges/android/keystore/
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Android build output and Gradle caches
+bridges/android/.gradle/
+bridges/android/build/
+bridges/android/app/build/
+bridges/android/local.properties
+bridges/android/dist/
+*.apk
+*.aab
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
