@@ -16,6 +16,12 @@ const SalesPage = lazy(() => import('./pages/SalesPage').then((m) => ({ default:
 const SalesEntryPage = lazy(() =>
   import('./pages/SalesEntryPage').then((m) => ({ default: m.SalesEntryPage })),
 )
+const BillModificationPage = lazy(() =>
+  import('./pages/BillModificationPage').then((m) => ({ default: m.BillModificationPage })),
+)
+const BillCancellationPage = lazy(() =>
+  import('./pages/BillCancellationPage').then((m) => ({ default: m.BillCancellationPage })),
+)
 const ItemsPage = lazy(() => import('./pages/ItemsPage').then((m) => ({ default: m.ItemsPage })))
 const ItemImportsPage = lazy(() =>
   import('./pages/ItemImportsPage').then((m) => ({ default: m.ItemImportsPage })),
@@ -177,6 +183,38 @@ export default function App() {
             element={
               <RequirePermission permission="SALES_MANAGE">
                 <SalesEntryPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="sales/modify"
+            element={
+              <RequirePermission permission="SALES_MODIFY">
+                <BillModificationPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="sales/modify/:id"
+            element={
+              <RequirePermission permission="SALES_MODIFY">
+                <BillModificationPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="sales/cancel"
+            element={
+              <RequirePermission permission="SALES_CANCEL">
+                <BillCancellationPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="sales/cancel/:id"
+            element={
+              <RequirePermission permission="SALES_CANCEL">
+                <BillCancellationPage />
               </RequirePermission>
             }
           />

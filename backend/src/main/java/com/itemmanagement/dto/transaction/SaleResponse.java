@@ -26,6 +26,9 @@ public record SaleResponse(
         BigDecimal balanceAmount,
         String paymentMethod,
         String status,
+        int modificationCount,
+        Instant cancelledAt,
+        String cancellationReason,
         Instant createdAt,
         List<LineResponse> items
 ) {

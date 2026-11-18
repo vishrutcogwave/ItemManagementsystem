@@ -85,6 +85,16 @@ public class Sale {
 
     private Long createdBy;
 
+    private Instant cancelledAt;
+
+    private Long cancelledBy;
+
+    @Column(length = 500)
+    private String cancellationReason;
+
+    @Column(nullable = false)
+    private int modificationCount;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 

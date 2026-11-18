@@ -1,14 +1,14 @@
-import { Eye, Plus, Printer, ReceiptText, ShoppingCart } from 'lucide-react'
+import { Ban, Eye, FilePenLine, FileText, Plus, Printer, ReceiptText, ShoppingCart } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Badge,
   Button,
   Card,
-  ConfirmDialog,
   DataTable,
   EmptyState,
   ErrorState,
+  Field,
   Input,
   LoadingState,
   Modal,
@@ -18,8 +18,10 @@ import {
   Select,
   Spinner,
   StatusBadge,
+  Textarea,
   type Column,
 } from '../components/ui'
+import { InvoicePrintPreview } from '../components/billing/InvoicePrintPreview'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
 import { api, errorMessage } from '../lib/api'
@@ -27,18 +29,21 @@ import { formatDate, formatDateTime, money, qty, today } from '../lib/format'
 import { printSaleReceiptForDevice } from '../services/printerService'
 import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
-import type { PageResponse, Sale } from '../types'
+import type { PageResponse, Sale, SaleCancellation } from '../types'
 
 export function SalesPage() {
   const navigate = useNavigate()
   const { selectedBranchId, hasPermission, store } = useAuthStore()
   const canManage = hasPermission('SALES_MANAGE')
+  const canModify = hasPermission('SALES_MODIFY')
+  const canCancel = hasPermission('SALES_CANCEL')
   const branchId = selectedBranchId
   const storeInfo = {
     name: store?.storeName ?? 'Store',
     gstNumber: store?.gstNumber,
     address: store?.address,
     mobile: store?.mobile,
+    email: store?.email,
   }
 
   const [search, setSearch] = useState('')
@@ -70,9 +75,13 @@ export function SalesPage() {
   const [detail, setDetail] = useState<Sale | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [cancelSale, setCancelSale] = useState<Sale | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [printingId, setPrintingId] = useState<number | null>(null)
   const [printingDetail, setPrintingDetail] = useState(false)
+  const [invoiceLoading, setInvoiceLoading] = useState<number | 'detail' | null>(null)
+  const [previewSale, setPreviewSale] = useState<Sale | null>(null)
 
   const printSale = async (sale: Sale, rowId?: number) => {
     if (rowId !== undefined && printingId !== null) return
@@ -105,16 +114,47 @@ export function SalesPage() {
     }
   }
 
+  const openInvoicePreview = async (rowId?: number) => {
+    if (invoiceLoading !== null) return
+    setInvoiceLoading(rowId ?? 'detail')
+    try {
+      const target = rowId !== undefined ? (await api.get<Sale>(`/sales/${rowId}`)).data : detail
+      if (target) setPreviewSale(target)
+    } catch (err) {
+      notifyError(errorMessage(err))
+    } finally {
+      setInvoiceLoading(null)
+    }
+  }
+
+  const openCancel = (sale: Sale) => {
+    setCancelSale(sale)
+    setCancelReason('')
+    setCancelError(null)
+  }
+
   const confirmCancel = async () => {
     if (!cancelSale) return
+    const reason = cancelReason.trim()
+    if (!reason) {
+      setCancelError('Enter the reason for cancelling this bill')
+      return
+    }
     setCancelling(true)
+    setCancelError(null)
     try {
-      const response = await api.post<Sale>(`/sales/${cancelSale.id}/cancel`)
-      notify('Sale cancelled and stock restored')
+      const response = await api.post<SaleCancellation>(`/sales/${cancelSale.id}/cancel`, { reason })
+      notify(`Bill cancelled — reference ${response.data.cancellationNumber}`)
+      const cancelledId = response.data.saleId
       setCancelSale(null)
-      setDetail(response.data)
+      setCancelReason('')
+      if (detail?.id === cancelledId) {
+        setDetail(null)
+        void viewSale(cancelledId)
+      }
       reload()
     } catch (err) {
+      setCancelError(errorMessage(err))
       notifyError(errorMessage(err))
     } finally {
       setCancelling(false)
@@ -133,6 +173,9 @@ export function SalesPage() {
           <div>
             <p className="font-semibold text-slate-800">{row.salesNumber}</p>
             <p className="text-[11px] text-slate-400">{formatDate(row.salesDate)}</p>
+            {row.modificationCount > 0 && (
+              <p className="text-[10px] font-semibold text-amber-600">{row.modificationCount}× modified</p>
+            )}
           </div>
         </div>
       ),
@@ -175,6 +218,25 @@ export function SalesPage() {
             aria-label={`View invoice ${row.salesNumber}`}
           >
             <Eye className="h-3.5 w-3.5" />
+          </button>
+          {canModify && row.status === 'COMPLETED' && (
+            <button
+              onClick={() => navigate(`/sales/modify/${row.id}`)}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              title="Modify bill"
+              aria-label={`Modify invoice ${row.salesNumber}`}
+            >
+              <FilePenLine className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => void openInvoicePreview(row.id)}
+            disabled={invoiceLoading !== null}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Preview & print tax invoice"
+            aria-label={`Preview and print tax invoice for ${row.salesNumber}`}
+          >
+            {invoiceLoading === row.id ? <Spinner className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
           </button>
           <button
             onClick={async () => {
@@ -315,7 +377,15 @@ export function SalesPage() {
         size="lg"
         footer={
           detail && !detailLoading ? (
-            <>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                icon={invoiceLoading === 'detail' ? undefined : <FileText className="h-4 w-4" />}
+                loading={invoiceLoading === 'detail'}
+                onClick={() => void openInvoicePreview()}
+              >
+                Print invoice
+              </Button>
               <Button
                 variant="outline"
                 icon={printingDetail ? undefined : <Printer className="h-4 w-4" />}
@@ -324,12 +394,21 @@ export function SalesPage() {
               >
                 Print receipt
               </Button>
-              {canManage && detail.status === 'COMPLETED' && (
-                <Button variant="danger" onClick={() => setCancelSale(detail)}>
-                  Cancel sale
+              {canModify && detail.status === 'COMPLETED' && (
+                <Button
+                  variant="ghost"
+                  icon={<FilePenLine className="h-4 w-4" />}
+                  onClick={() => navigate(`/sales/modify/${detail.id}`)}
+                >
+                  Modify bill
                 </Button>
               )}
-            </>
+              {canCancel && detail.status === 'COMPLETED' && (
+                <Button variant="danger" icon={<Ban className="h-4 w-4" />} onClick={() => openCancel(detail)}>
+                  Cancel bill
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       >
@@ -337,6 +416,14 @@ export function SalesPage() {
           <LoadingState />
         ) : (
           <div className="space-y-4">
+            {detail.status === 'CANCELLED' && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                <p className="font-bold">
+                  Bill cancelled{detail.cancelledAt ? ` on ${formatDateTime(detail.cancelledAt)}` : ''}
+                </p>
+                {detail.cancellationReason && <p className="mt-0.5">Reason: {detail.cancellationReason}</p>}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="rounded-lg bg-slate-50 px-3 py-2">
                 <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Status</p>
@@ -448,16 +535,60 @@ export function SalesPage() {
         )}
       </Modal>
 
-      <ConfirmDialog
+      <Modal
         open={Boolean(cancelSale)}
-        onClose={() => setCancelSale(null)}
-        onConfirm={confirmCancel}
-        title="Cancel sale"
-        message={`Cancel ${cancelSale?.salesNumber ?? 'this sale'}? Stock will be restored to the branch and the invoice will be marked cancelled.`}
-        confirmLabel="Cancel sale"
-        tone="danger"
-        loading={cancelling}
-        cancelLabel="Keep sale"
+        onClose={() => {
+          if (!cancelling) setCancelSale(null)
+        }}
+        title="Cancel bill"
+        description={
+          cancelSale
+            ? `${cancelSale.salesNumber} · ${money(cancelSale.grandTotal)} · ${cancelSale.branchName}`
+            : undefined
+        }
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setCancelSale(null)} disabled={cancelling}>
+              Keep bill
+            </Button>
+            <Button variant="danger" onClick={() => void confirmCancel()} loading={cancelling}>
+              Cancel bill
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm leading-relaxed text-slate-600">
+            Cancelling restores stock to the branch, marks the bill CANCELLED and keeps it in history with this
+            reason. This cannot be undone.
+          </p>
+          <Field label="Cancellation reason" required error={cancelError ?? undefined}>
+            <Textarea
+              rows={3}
+              maxLength={500}
+              value={cancelReason}
+              onChange={(event) => {
+                setCancelReason(event.target.value)
+                if (cancelError) setCancelError(null)
+              }}
+              placeholder="e.g. Customer returned the goods"
+            />
+          </Field>
+          {Number(cancelSale?.paidAmount ?? 0) > 0 && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+              {money(cancelSale?.paidAmount)} was collected on this bill — refund it to the customer separately.
+            </p>
+          )}
+        </div>
+      </Modal>
+
+      <InvoicePrintPreview
+        open={Boolean(previewSale)}
+        sale={previewSale}
+        store={storeInfo}
+        cancellationReason={previewSale?.cancellationReason}
+        onClose={() => setPreviewSale(null)}
       />
     </div>
   )

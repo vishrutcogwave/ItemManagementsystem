@@ -1,6 +1,7 @@
 import type { Purchase, Sale, SupplierPayment } from '../types'
-import { printHtml } from './export'
+import { printHtml, printDocument } from './export'
 import { formatDate, money, qty } from './format'
+import { buildInvoiceHtml } from './invoiceTemplate'
 
 function escapeHtml(value: string | null | undefined): string {
   return String(value ?? '')
@@ -15,6 +16,7 @@ interface StoreInfo {
   gstNumber?: string | null
   address?: string | null
   mobile?: string | null
+  email?: string | null
 }
 
 export function printPurchase(purchase: Purchase, store: StoreInfo): void {
@@ -170,5 +172,28 @@ export function printSaleReceipt(sale: Sale, store: StoreInfo): void {
       </div>
     </div>`,
     `Receipt ${sale.salesNumber}`,
+  )
+}
+
+export interface InvoiceOptions {
+  cancellationNumber?: string | null
+  cancellationReason?: string | null
+}
+
+/**
+ * A4 tax invoice for laser/inkjet printers. The thermal receipt stays a
+ * separate document so changing this layout can never affect paper rolls.
+ */
+/**
+ * A4 tax invoice for laser/inkjet printers, built by the universal invoice
+ * engine. The thermal receipt stays a separate document so changing this
+ * layout can never affect paper rolls.
+ */
+export function printSaleInvoice(sale: Sale, store: StoreInfo, options: InvoiceOptions = {}): void {
+  printDocument(
+    buildInvoiceHtml(sale, store, {
+      cancellationNumber: options.cancellationNumber,
+      cancellationReason: options.cancellationReason,
+    }),
   )
 }

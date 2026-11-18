@@ -204,9 +204,11 @@ class SystemInvariantIntegrationTest {
         assertEquals(0, stockOf(session, item.code()).compareTo(new BigDecimal("1")));
 
         long saleId = sale.get("id").asLong();
-        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel", null, session.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel",
+                map("reason", "Customer returned the goods"), session.token(), HttpStatus.OK);
         assertEquals(0, stockOf(session, item.code()).compareTo(new BigDecimal("5")));
-        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel", null, session.token(), HttpStatus.BAD_REQUEST);
+        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel",
+                map("reason", "Duplicate cancellation attempt"), session.token(), HttpStatus.CONFLICT);
     }
 
     @Test

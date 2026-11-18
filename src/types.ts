@@ -722,8 +722,77 @@ export interface Sale {
   balanceAmount: number
   paymentMethod: PaymentMethod
   status: SaleStatus
+  modificationCount: number
+  cancelledAt: string | null
+  cancellationReason: string | null
   createdAt: string
   items: SaleLine[]
+}
+
+export type ModificationChangeType = 'ADDED' | 'REMOVED' | 'UPDATED'
+
+export interface SaleModificationLine {
+  itemId: number
+  itemCode: string | null
+  itemName: string | null
+  unit: string | null
+  changeType: ModificationChangeType
+  originalQuantity: number
+  modifiedQuantity: number
+  originalRate: number
+  modifiedRate: number
+  originalAmount: number
+  modifiedAmount: number
+  differenceAmount: number
+  taxAmount: number
+}
+
+export interface SaleModification {
+  modificationId: number | null
+  modificationNumber: string | null
+  modifiedAt: string | null
+  reason: string | null
+  originalTotal: number
+  modifiedTotal: number
+  differenceAmount: number
+  additionalPayable: number
+  refundDue: number
+  originalQuantity: number
+  modifiedQuantity: number
+  quantityIncreased: number
+  quantityDecreased: number
+  itemsAdded: number
+  itemsRemoved: number
+  itemsUpdated: number
+  lines: SaleModificationLine[]
+  sale: Sale
+}
+
+export interface SaleModificationRequest {
+  reason?: string
+  baseModificationCount: number
+  items: {
+    itemId: number
+    quantity: number
+    unit: string
+    sellingRate: number
+    discount: number
+  }[]
+}
+
+export interface SaleCancellation {
+  saleId: number
+  salesNumber: string
+  cancellationNumber: string
+  reason: string
+  cancelledAt: string
+  cancelledBy: number | null
+  cancelledByName: string | null
+  saleTotal: number
+  paidAmount: number
+  balanceAmount: number
+  restoredItems: number
+  status: SaleStatus
 }
 
 export interface SaleRequest {

@@ -325,7 +325,8 @@ class PrintingIntegrationTest {
         Session storeB = registerStore();
         long saleId = createSale(storeA);
 
-        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel", null, storeA.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel",
+                Map.of("reason", "Customer returned the goods"), storeA.token(), HttpStatus.OK);
         JsonNode cancelled = printJob(storeA, saleId, "WINDOWS", "AUTO", null, HttpStatus.BAD_REQUEST);
         assertTrue(cancelled.get("message").asText().contains("completed sales"));
 

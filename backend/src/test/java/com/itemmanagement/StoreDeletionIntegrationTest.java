@@ -451,11 +451,27 @@ class StoreDeletionIntegrationTest {
                         "clientReference", UUID.randomUUID().toString()),
                 session.token(), HttpStatus.OK);
 
-        call(HttpMethod.POST, "/api/sales",
+        JsonNode modifiedSale = call(HttpMethod.POST, "/api/sales",
                 map("branchId", session.branchId(), "paymentMethod", "CASH",
                         "items", List.of(map("itemId", itemId, "quantity", BigDecimal.ONE,
                                 "unit", "PIECE", "sellingRate", new BigDecimal("20"),
                                 "discount", BigDecimal.ZERO))),
+                session.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/sales/" + modifiedSale.get("id").asLong() + "/modifications",
+                map("reason", "Deletion coverage edit", "baseModificationCount", 0,
+                        "items", List.of(map("itemId", itemId, "quantity", new BigDecimal("2"),
+                                "unit", "PIECE", "sellingRate", new BigDecimal("20"),
+                                "discount", BigDecimal.ZERO))),
+                session.token(), HttpStatus.OK);
+
+        JsonNode cancelledSale = call(HttpMethod.POST, "/api/sales",
+                map("branchId", session.branchId(), "paymentMethod", "CASH",
+                        "items", List.of(map("itemId", itemId, "quantity", BigDecimal.ONE,
+                                "unit", "PIECE", "sellingRate", new BigDecimal("20"),
+                                "discount", BigDecimal.ZERO))),
+                session.token(), HttpStatus.OK);
+        call(HttpMethod.POST, "/api/sales/" + cancelledSale.get("id").asLong() + "/cancel",
+                map("reason", "Deletion coverage cancellation"),
                 session.token(), HttpStatus.OK);
 
         long secondBranch = call(HttpMethod.POST, "/api/branches",

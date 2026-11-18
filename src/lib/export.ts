@@ -136,7 +136,7 @@ export function printTable<T>({ title, subtitle, columns, rows, summary = [] }: 
   )
 }
 
-export function printHtml(html: string, title: string): void {
+export function printHtml(html: string, title: string, extraCss = ''): void {
   const frame = document.createElement('iframe')
   frame.style.position = 'fixed'
   frame.style.right = '0'
@@ -168,7 +168,38 @@ export function printHtml(html: string, title: string): void {
     .totals div { display: flex; justify-content: space-between; padding: 3px 0; }
     .totals .grand { border-top: 1px solid #d1d5db; margin-top: 4px; padding-top: 6px; font-weight: 700; font-size: 14px; }
     @media print { body { padding: 0; } }
+    ${extraCss}
   </style></head><body>${html}</body></html>`)
+  doc.close()
+
+  frame.contentWindow?.focus()
+  setTimeout(() => {
+    frame.contentWindow?.print()
+    setTimeout(() => frame.remove(), 1000)
+  }, 250)
+}
+
+/**
+ * Prints a complete standalone HTML document (own <html>/<style>), such as a
+ * built invoice template. The iframe stays on screen (hidden) so the browser
+ * print dialog receives the document's own @page rules.
+ */
+export function printDocument(html: string): void {
+  const frame = document.createElement('iframe')
+  frame.style.position = 'fixed'
+  frame.style.right = '0'
+  frame.style.bottom = '0'
+  frame.style.width = '0'
+  frame.style.height = '0'
+  frame.style.border = '0'
+  frame.style.visibility = 'hidden'
+  document.body.appendChild(frame)
+
+  const doc = frame.contentWindow?.document
+  if (!doc) return
+
+  doc.open()
+  doc.write(html)
   doc.close()
 
   frame.contentWindow?.focus()

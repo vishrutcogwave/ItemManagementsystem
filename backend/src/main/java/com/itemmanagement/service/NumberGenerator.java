@@ -44,4 +44,12 @@ public class NumberGenerator {
     public String nextSupplierPayment() {
         return next("supplier_payment_number_seq", "SPAY");
     }
+
+    public String nextSaleModification() {
+        return next("sale_modification_number_seq", "MOD");
+    }
+
+    public String nextSaleCancellation() {
+        return next("sale_cancellation_number_seq", "SCN");
+    }
 }
