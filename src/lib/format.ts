@@ -50,23 +50,23 @@ export function formatDateTime(value: string | null | undefined): string {
   )}`
 }
 
+function localDateValue(date: Date): string {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
 export function today(): string {
-  const now = new Date()
-  const offset = now.getTimezoneOffset()
-  return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10)
+  return localDateValue(new Date())
 }
 
 export function daysAgo(days: number): string {
   const now = new Date()
   now.setDate(now.getDate() - days)
-  const offset = now.getTimezoneOffset()
-  return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10)
+  return localDateValue(now)
 }
 
 export function monthStart(): string {
   const now = new Date()
-  const offset = now.getTimezoneOffset()
-  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0 - offset).toISOString().slice(0, 10)
+  return localDateValue(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
 export function titleCase(value: string | null | undefined): string {

@@ -90,7 +90,7 @@ export function StockReportView({ filters }: { filters: ReportFilters }) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Closing quantity" value={qty(data?.totalCurrentStock ?? 0)} hint="Base units across rows" icon={<Boxes className="h-5 w-5" />} tone="brand" />
-        <StatCard label="Inventory value" value={money(data?.totalStockValue ?? 0)} hint="At weighted average cost" icon={<IndianRupee className="h-5 w-5" />} tone="green" />
+        <StatCard label="Inventory value" value={money(data?.totalStockValue ?? 0)} hint="Closing quantity at current weighted average cost" icon={<IndianRupee className="h-5 w-5" />} tone="green" />
         <StatCard label="Item × branch rows" value={data?.rows.length ?? 0} icon={<PackageSearch className="h-5 w-5" />} tone="purple" />
       </div>
 

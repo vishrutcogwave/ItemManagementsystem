@@ -1,10 +1,14 @@
 package com.itemmanagement.entity;
 
+import com.itemmanagement.dto.transaction.SalePayment;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 @Entity
 @Table(name = "sale_modifications")
@@ -68,6 +72,12 @@ public class SaleModification {
 
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal refundDue;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<SalePayment> paymentsBefore;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<SalePayment> paymentsAfter;
 
     @PrePersist
     void onCreate() {

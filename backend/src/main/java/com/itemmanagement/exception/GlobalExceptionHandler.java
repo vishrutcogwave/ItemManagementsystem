@@ -9,8 +9,10 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -42,6 +44,18 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = base(HttpStatus.BAD_REQUEST, "Please correct the highlighted fields");
         body.put("fieldErrors", fields);
         return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingParameter(MissingServletRequestParameterException ex) {
+        return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
+                "Missing required parameter: " + ex.getParameterName()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidParameter(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.badRequest().body(base(HttpStatus.BAD_REQUEST,
+                "Invalid value for parameter: " + ex.getName()));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

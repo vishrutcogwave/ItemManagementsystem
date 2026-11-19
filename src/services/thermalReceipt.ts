@@ -1,5 +1,6 @@
 import type { PaperWidth, Sale } from '../types'
 import { formatDate, qty } from '../lib/format'
+import { salePayments } from '../lib/salePayments'
 
 export interface ThermalLine {
   text: string
@@ -265,7 +266,9 @@ export function buildSaleReceiptLines(sale: Sale, store: StoreInfo, paperWidth: 
   if (sale.customerState) lines.push(...labeled('Place of supply', safe(sale.customerState), width))
   lines.push(...labeled('Bill No', safe(sale.salesNumber), width))
   if (sale.branchName) lines.push(...labeled('Branch', safe(sale.branchName), width))
-  lines.push(...labeled('Payment Mode', safe(String(sale.paymentMethod ?? '')), width))
+  const payments = salePayments(sale)
+  const method = payments.length > 1 ? 'Split payment' : sale.paymentMethod
+  lines.push(...labeled('Payment Mode', method, width))
   lines.push(divider(width))
 
   // ---------- Items ----------
@@ -339,8 +342,9 @@ export function buildSaleReceiptLines(sale: Sale, store: StoreInfo, paperWidth: 
   lines.push(divider(width))
 
   // ---------- Payment ----------
-  const method = safe(String(sale.paymentMethod ?? '')) || 'Paid'
-  lines.push({ text: pair(`${method} :`, `Rs ${amount(sale.paidAmount)}`, width) })
+  for (const payment of payments) {
+    lines.push({ text: pair(`${payment.method} :`, `Rs ${amount(payment.amount)}`, width) })
+  }
   if (Number(sale.balanceAmount) > 0) {
     lines.push({ text: pair('Balance Due :', `Rs ${amount(sale.balanceAmount)}`, width), bold: true })
   }

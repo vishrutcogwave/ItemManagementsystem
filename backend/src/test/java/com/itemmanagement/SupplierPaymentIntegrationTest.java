@@ -63,7 +63,7 @@ class SupplierPaymentIntegrationTest {
         assertMoney(purchase.get("balanceAmount"), "2000");
 
         JsonNode first = pay(session, supplierId, "1000", List.of(bill), "CASH", UUID.randomUUID().toString());
-        assertEquals("SPAY", first.get("paymentNumber").asText().substring(0, 4));
+        assertTrue(first.get("paymentNumber").asText().matches("[1-9][0-9]*"));
         assertEquals(1, first.get("allocations").size());
 
         assertOutstanding(session, supplierId, "2000", "1000", "1000");
@@ -275,6 +275,70 @@ class SupplierPaymentIntegrationTest {
         assertMoney(ledger.get("totalDebit"), "5000");
         assertMoney(ledger.get("totalCredit"), "2000");
         assertMoney(ledger.get("closingBalance"), "3000");
+
+        JsonNode otherBranch = call(HttpMethod.POST, "/api/branches",
+                map("branchCode", "QAEMPTY", "branchName", "Empty branch", "address", "2 Test Road",
+                        "contactNumber", "9000000004", "status", "ACTIVE"),
+                session.token(), HttpStatus.OK);
+        String ledgerPath = "/api/reports/supplier-ledger?supplierId=" + supplierId;
+        JsonNode scoped = call(HttpMethod.GET, ledgerPath + "&branchId=" + session.branchId(),
+                null, session.token(), HttpStatus.OK);
+        assertMoney(scoped.get("closingBalance"), "3000");
+        JsonNode empty = call(HttpMethod.GET, ledgerPath + "&branchId=" + otherBranch.get("id").asLong(),
+                null, session.token(), HttpStatus.OK);
+        assertEquals(0, empty.get("rows").size());
+        assertMoney(empty.get("totalDebit"), "0");
+        assertMoney(empty.get("totalCredit"), "0");
+        assertMoney(empty.get("closingBalance"), "0");
+    }
+
+    @Test
+    void ledgerIncludesInitialPaymentWithoutCountingLaterAllocationsTwice() {
+        Session session = registerStore();
+        long supplierId = createSupplier(session, "Paid at purchase");
+        LocalDate today = LocalDate.now();
+        LocalDate yesterday = today.minusDays(1);
+        long bill = completedPurchase(session, supplierId, "100", "40", yesterday);
+        pay(session, supplierId, "10", List.of(bill), "BANK", UUID.randomUUID().toString());
+
+        String path = "/api/reports/supplier-ledger?supplierId=" + supplierId;
+        JsonNode previous = call(HttpMethod.GET, path + "&from=" + yesterday + "&to=" + yesterday,
+                null, session.token(), HttpStatus.OK);
+        assertMoney(previous.get("totalCredit"), "40");
+        assertMoney(previous.get("closingBalance"), "60");
+        assertEquals(2, previous.get("rows").size());
+        JsonNode current = call(HttpMethod.GET, path + "&from=" + today + "&to=" + today,
+                null, session.token(), HttpStatus.OK);
+        assertMoney(current.get("openingBalance"), "60");
+        assertMoney(current.get("totalCredit"), "10");
+        assertMoney(current.get("closingBalance"), "50");
+        assertMoney(getPurchase(session, bill).get("balanceAmount"), "50");
+    }
+
+    @Test
+    void paymentReportsSumOnlyAllocationsInTheSelectedBranch() {
+        Session session = registerStore();
+        long secondBranch = call(HttpMethod.POST, "/api/branches",
+                map("branchCode", "QAALLOC", "branchName", "Allocation branch", "address", "Second Test Road",
+                        "contactNumber", "9000000004", "status", "ACTIVE"),
+                session.token(), HttpStatus.OK).get("id").asLong();
+        Session other = new Session(session.token(), session.storeId(), secondBranch,
+                session.storeCode(), session.username());
+        long supplierId = createSupplier(session, "Scoped payment");
+        long firstBill = completedPurchase(session, supplierId, "60", "0");
+        long otherBill = completedPurchase(other, supplierId, "100", "0");
+        pay(session, supplierId, "110", List.of(firstBill, otherBill), "BANK", UUID.randomUUID().toString());
+        String path = "/api/reports/supplier-payments?supplierId=" + supplierId;
+        for (Session branch : List.of(session, other)) {
+            boolean first = branch == session;
+            JsonNode response = call(HttpMethod.GET, path + "&branchId=" + branch.branchId(),
+                    null, session.token(), HttpStatus.OK);
+            assertMoney(response.at("/totals/amount"), first ? "60" : "50");
+            assertEquals(getPurchase(session, first ? firstBill : otherBill).get("purchaseNumber").asText(),
+                    response.at("/rows/0/bills").asText());
+        }
+        JsonNode total = call(HttpMethod.GET, path, null, session.token(), HttpStatus.OK);
+        assertMoney(total.at("/totals/amount"), "110");
     }
 
     // ---------- compatibility and isolation ----------

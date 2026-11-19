@@ -63,7 +63,7 @@ On first start the backend:
 1. Starts embedded PostgreSQL on port `54329` (data in `backend/.pgdata`).
 2. Creates the `item_management_db` database if missing.
 3. Runs Flyway migrations from `src/main/resources/db/migration`.
-4. Seeds the platform administrator and demo store data (unless `SEED_DEMO=false`).
+4. Provisions the first platform administrator only when explicitly enabled and credentials are supplied.
 
 The API is available at `http://localhost:8080`.
 
@@ -76,17 +76,14 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies `/api` to the backend, so no CORS setup is needed in development.
 
-### Demo accounts
+### Local test accounts
 
-| Scope | Store code | Username | Password |
-| --- | --- | --- | --- |
-| Platform administrator | `PLATFORM` | `platform` | `Admin@123` |
-| Store owner (ABC Dairy) | `ABC001` | `owner` | `Owner@123` |
-| Branch manager | `ABC001` | `manager` | `Manager@123` |
-| Branch staff | `ABC001` | `staff` | `Staff@123` |
-| Second store owner (Sunrise Mart) | `SUN001` | `sunrise.owner` | `Sunrise@123` |
+A fresh database starts without a platform administrator or demo store. Provision the first
+administrator explicitly using the platform-admin environment variables below, sign in with
+the `PLATFORM` store code, and change the temporary password. The administrator can then create
+a test store. The legacy demo seeder is not called on startup.
 
-Demo data exists only when `SEED_DEMO=true` (the default in development). Set `SEED_DEMO=false` for a clean production database.
+The [isolated QA runbook](qa/README.md) explains how to prepare and run a disposable test instance.
 
 ## Configuration
 
@@ -99,10 +96,13 @@ All settings can be provided as environment variables.
 | `EMBEDDED_POSTGRES_PORT` | `54329` | Embedded PostgreSQL port |
 | `EMBEDDED_POSTGRES_DATA_DIR` | `./.pgdata` | Embedded data directory |
 | `EMBEDDED_POSTGRES_CLEAN` | `false` | Wipe the embedded data directory on startup |
-| `JWT_SECRET` | dev-only value | **Must be set in production** (32+ random bytes) |
+| `JWT_SECRET` | Development default only | Required with the `postgres` profile. Provide at least 32 cryptographically random bytes. |
 | `JWT_EXPIRATION_MS` | `43200000` (12 h) | Token lifetime |
-| `SEED_DEMO` | `true` | Seed demo store/users |
+| `SEED_DEMO` | `false` | Legacy demo-seeder setting. Startup does not invoke the seeder. |
+| `PROVISION_PLATFORM_ADMIN` | `false` | Explicitly enable first-administrator provisioning |
+| `PLATFORM_ADMIN_USERNAME`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_EMAIL` | Empty | Required credentials when provisioning is enabled |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated allowed origins |
+| `AUTH_COOKIE_SECURE` | `true` with the `postgres` profile | Send the session cookie over HTTPS |
 | `DB_URL` | `jdbc:postgresql://localhost:5432/item_management_db` | External database URL (`postgres` profile) |
 | `DB_USERNAME` / `DB_PASSWORD` | `postgres` / `postgres` | External database credentials |
 | `DB_POOL_SIZE` | `15` | Hikari maximum pool size |

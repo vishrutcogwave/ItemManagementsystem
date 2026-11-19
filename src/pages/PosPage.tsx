@@ -28,9 +28,12 @@ import {
 import { ScanBar } from '../components/barcode/ScanBar'
 import { useApi } from '../hooks/useApi'
 import { useDebounce } from '../hooks/useDebounce'
-import { api, errorMessage } from '../lib/api'
+import { ApiError, api, errorMessage } from '../lib/api'
 import { money, qty, today } from '../lib/format'
-import { autoPrintSale, printSaleReceiptForDevice } from '../services/printerService'
+import { InvoicePrintPreview } from '../components/billing/InvoicePrintPreview'
+import { collectionMethods, paymentBreakdown, paymentLabels, salePayments } from '../lib/salePayments'
+import { autoPrintSale, printSaleThermal } from '../services/printerService'
+import type { InvoicePrintSettings } from '../lib/invoiceTemplate'
 import { billPreview, isInterState } from '../lib/tax'
 import { useAuthStore } from '../store/auth'
 import { notify, notifyError } from '../store/ui'
@@ -40,6 +43,21 @@ interface CartLine {
   item: PosItem
   quantity: number
   rate: number
+}
+
+const silentInvoiceKey = 'ims.pos.silentInvoicePaper'
+
+function savedInvoiceSettings(): InvoicePrintSettings | null {
+  try {
+    const saved = localStorage.getItem(silentInvoiceKey)
+    if (saved === 'MM58' || saved === 'MM80') return { template: 'RETAIL', paper: { kind: saved } }
+    const settings = JSON.parse(saved ?? 'null') as InvoicePrintSettings | null
+    if (settings && ['RETAIL', 'SAREE'].includes(settings.template) &&
+        ['A4', 'A5', 'CUSTOM', 'MM58', 'MM80'].includes(settings.paper.kind)) return settings
+  } catch {
+    // An invalid stored choice falls back to the invoice preview.
+  }
+  return null
 }
 
 const paymentOptions: { value: PaymentMethod; label: string; icon: typeof Banknote }[] = [
@@ -57,6 +75,7 @@ export function PosPage() {
     gstNumber: store?.gstNumber,
     address: store?.address,
     mobile: store?.mobile,
+    email: store?.email,
   }
 
   useEffect(() => {
@@ -100,8 +119,12 @@ export function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [discount, setDiscount] = useState('0')
   const [paid, setPaid] = useState('')
+  const [splitPayment, setSplitPayment] = useState(false)
+  const [splitAmounts, setSplitAmounts] = useState<Partial<Record<PaymentMethod, string>>>({})
   const [selling, setSelling] = useState(false)
   const [completedSale, setCompletedSale] = useState<Sale | null>(null)
+  const [silentSettings, setSilentSettings] = useState(savedInvoiceSettings)
+  const [invoiceOpen, setInvoiceOpen] = useState(false)
   const [printingReceipt, setPrintingReceipt] = useState(false)
   const billRef = useRef<HTMLDivElement>(null)
 
@@ -119,7 +142,16 @@ export function PosPage() {
     interState,
   )
   const grandTotal = preview.grand
-  const paidAmount = paid === '' ? (paymentMethod === 'CREDIT' ? 0 : grandTotal) : Number(paid)
+  const splitRows = collectionMethods.flatMap((method) => {
+    const amount = splitAmounts[method]
+    return amount ? [{ method, amount }] : []
+  })
+  const validSplit = splitRows.length >= 2 && splitRows.every(
+    ({ amount }) => /^\d+(?:\.\d{1,2})?$/.test(amount) && Number(amount) > 0,
+  )
+  const paidAmount = splitPayment
+    ? splitRows.reduce((sum, { amount }) => sum + Math.round(Number(amount) * 100), 0) / 100
+    : paid === '' ? (paymentMethod === 'CREDIT' ? 0 : grandTotal) : Number(paid)
   const balance = Math.max(0, grandTotal - paidAmount)
   const change = Math.max(0, paidAmount - grandTotal)
   const totalItems = cart.reduce((sum, line) => sum + line.quantity, 0)
@@ -197,6 +229,8 @@ export function PosPage() {
     setPaymentMethod('CASH')
     setDiscount('0')
     setPaid('')
+    setSplitPayment(false)
+    setSplitAmounts({})
   }
 
   const completeSale = async () => {
@@ -206,6 +240,10 @@ export function PosPage() {
     }
     if (cart.length === 0) {
       notifyError('Add at least one item to the bill')
+      return
+    }
+    if (splitPayment && !validSplit) {
+      notifyError('Enter positive amounts with up to two decimal places for at least two payment methods')
       return
     }
     if (paidAmount < 0) {
@@ -219,15 +257,16 @@ export function PosPage() {
 
     setSelling(true)
     try {
-      const { data } = await api.post<Sale>('/sales', {
+      const { data } = await api.post<Sale>(splitPayment ? '/sales/split' : '/sales', {
         branchId,
         customerName: customerName.trim() || undefined,
         customerMobile: customerMobile.trim() || undefined,
         customerState: customerState.trim() || undefined,
         salesDate: today(),
         discount: Number(discount || 0),
-        paidAmount,
-        paymentMethod,
+        ...(splitPayment
+          ? { payments: splitRows.map(({ method, amount }) => ({ method, amount: Number(amount) })) }
+          : { paidAmount, paymentMethod }),
         status: 'COMPLETED',
         pos: true,
         items: cart.map((line) => ({
@@ -246,7 +285,13 @@ export function PosPage() {
         if (outcome?.status === 'FAILED') notifyError(outcome.message ?? 'The receipt could not be printed')
       })
     } catch (err) {
-      notifyError(errorMessage(err))
+      if (splitPayment && err instanceof ApiError && [404, 405].includes(err.status)) {
+        notifyError('This server needs an update before it can save split payments. The sale was not saved.')
+      } else if (splitPayment && err instanceof ApiError && err.status >= 500) {
+        notifyError('The server could not confirm the split payment. Check Sales before trying again.')
+      } else {
+        notifyError(errorMessage(err))
+      }
     } finally {
       setSelling(false)
     }
@@ -254,15 +299,26 @@ export function PosPage() {
 
   const activeBranch = branches.find((branch) => branch.id === branchId)
 
-  const printCompletedReceipt = async () => {
+  const saveSilentSettings = (settings: InvoicePrintSettings | null) => {
+    try {
+      if (settings) localStorage.setItem(silentInvoiceKey, JSON.stringify(settings))
+      else localStorage.removeItem(silentInvoiceKey)
+      setSilentSettings(settings)
+      notify(settings ? 'Silent invoice printing saved on this device' : 'POS invoice preview restored')
+      setInvoiceOpen(false)
+    } catch {
+      notifyError('Unable to save print settings on this device')
+    }
+  }
+
+  const printCompletedReceipt = async (invoiceSettings?: InvoicePrintSettings) => {
     if (!completedSale || printingReceipt) return
     setPrintingReceipt(true)
     try {
-      const outcome = await printSaleReceiptForDevice(completedSale, storeInfo)
-      if (!outcome) return
-      if (outcome.status === 'PRINTED') notify('Receipt sent to the printer')
-      else if (outcome.status === 'DUPLICATE') notify('This receipt was already printed')
-      else if (outcome.status !== 'UNSUPPORTED' || outcome.message) notifyError(outcome.message ?? 'Unable to print receipt')
+      const outcome = await printSaleThermal(completedSale, { store: storeInfo, invoiceLayout: true, invoiceSettings })
+      if (outcome.status === 'PRINTED') notify('Invoice sent to the printer')
+      else if (outcome.status === 'DUPLICATE') notify('This invoice was already printed')
+      else notifyError(outcome.message ?? 'Unable to print the thermal invoice')
     } finally {
       setPrintingReceipt(false)
     }
@@ -523,23 +579,46 @@ export function PosPage() {
           </div>
 
           <div>
-            <p className="mb-1.5 text-[11px] font-semibold text-slate-500">Payment method</p>
-            <div className="grid grid-cols-4 gap-1.5">
-              {paymentOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setPaymentMethod(option.value)}
-                  className={`flex flex-col items-center gap-1 rounded-lg border py-1.5 text-[10px] font-semibold transition ${
-                    paymentMethod === option.value
-                      ? 'border-brand-500 bg-brand-50 text-brand-700'
-                      : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                  }`}
-                >
-                  <option.icon className="h-3.5 w-3.5" />
-                  {option.label}
-                </button>
-              ))}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold text-slate-500">Payment method</p>
+              <Button size="sm" variant={splitPayment ? 'primary' : 'outline'} aria-pressed={splitPayment}
+                onClick={() => setSplitPayment((enabled) => !enabled)}>
+                Split payment
+              </Button>
             </div>
+            {splitPayment ? (
+              <div className="grid grid-cols-2 gap-2">
+                {collectionMethods.map((method) => (
+                  <Field key={method} label={paymentLabels[method]}>
+                    <Input type="number" min="0.01" step="0.01" placeholder="0.00"
+                      aria-label={`${paymentLabels[method]} amount`}
+                      value={splitAmounts[method] ?? ''}
+                      onChange={(event) => {
+                        const amount = event.target.value
+                        setSplitAmounts((current) => ({ ...current, [method]: amount }))
+                      }}
+                      className="h-9 text-xs" />
+                  </Field>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-1.5">
+                {paymentOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setPaymentMethod(option.value)}
+                    className={`flex flex-col items-center gap-1 rounded-lg border py-1.5 text-[10px] font-semibold transition ${
+                      paymentMethod === option.value
+                        ? 'border-brand-500 bg-brand-50 text-brand-700'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    <option.icon className="h-3.5 w-3.5" />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs">
@@ -584,39 +663,47 @@ export function PosPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Field label="Amount received" className="flex-1">
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                className="h-9 text-xs"
-                value={paid}
-                onChange={(event) => setPaid(event.target.value)}
-                placeholder={String(grandTotal.toFixed(2))}
-              />
-            </Field>
-            <div className="w-24 text-right">
-              <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
-                {balance > 0 ? 'Balance' : 'Change'}
-              </p>
-              <p className={`text-sm font-bold ${balance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                {money(balance > 0 ? balance : change)}
-              </p>
+          {splitPayment ? (
+            <dl className="grid grid-cols-2 gap-1 text-xs text-slate-600">
+              <dt>Total received</dt><dd className="text-right font-semibold">{money(paidAmount)}</dd>
+              <dt>{change > 0 ? 'Over bill total' : 'Remaining balance'}</dt>
+              <dd className="text-right font-semibold">{money(change > 0 ? change : balance)}</dd>
+            </dl>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Field label="Amount received" className="flex-1">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-9 text-xs"
+                  value={paid}
+                  onChange={(event) => setPaid(event.target.value)}
+                  placeholder={String(grandTotal.toFixed(2))}
+                />
+              </Field>
+              <div className="w-24 text-right">
+                <p className="text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+                  {balance > 0 ? 'Balance' : 'Change'}
+                </p>
+                <p className={`text-sm font-bold ${balance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {money(balance > 0 ? balance : change)}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           <Button
             size="lg"
             className="w-full justify-center"
             loading={selling}
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || (splitPayment && (!validSplit || paidAmount > grandTotal))}
             onClick={completeSale}
             icon={selling ? undefined : <ShoppingCart className="h-4 w-4" />}
           >
             Complete sale · {money(grandTotal)}
           </Button>
-          {totalItems > 0 && paymentMethod === 'CREDIT' && (
+          {totalItems > 0 && !splitPayment && paymentMethod === 'CREDIT' && (
             <p className="text-center text-[10px] text-amber-600">
               Credit sale records the unpaid balance against the customer.
             </p>
@@ -626,7 +713,7 @@ export function PosPage() {
       </div>
 
       <Modal
-        open={Boolean(completedSale)}
+        open={Boolean(completedSale) && !invoiceOpen}
         onClose={() => setCompletedSale(null)}
         title="Sale completed"
         description={completedSale ? `${completedSale.salesNumber} · ${completedSale.branchName}` : undefined}
@@ -636,13 +723,22 @@ export function PosPage() {
             <Button variant="outline" onClick={() => setCompletedSale(null)}>
               New sale
             </Button>
+            <Button loading={Boolean(silentSettings) && printingReceipt}
+              onClick={() => silentSettings ? void printCompletedReceipt(silentSettings) : setInvoiceOpen(true)}
+              icon={<Printer className="h-4 w-4" />}>
+              Print invoice
+            </Button>
             <Button
-              icon={printingReceipt ? undefined : <Printer className="h-4 w-4" />}
+              variant="outline"
+              icon={<Printer className="h-4 w-4" />}
               loading={printingReceipt}
               onClick={() => void printCompletedReceipt()}
             >
-              Print receipt
+              Thermal receipt
             </Button>
+            {silentSettings && (
+              <Button variant="outline" onClick={() => setInvoiceOpen(true)}>Print settings</Button>
+            )}
           </>
         }
       >
@@ -652,9 +748,9 @@ export function PosPage() {
               <ShoppingCart className="h-6 w-6" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-slate-800">{money(completedSale.grandTotal)} collected</p>
+              <p className="text-sm font-semibold text-slate-800">{money(completedSale.paidAmount)} collected</p>
               <p className="mt-1 text-xs text-slate-500">
-                {completedSale.items?.length ?? 0} lines · {completedSale.paymentMethod} · {completedSale.branchName}
+                {completedSale.items?.length ?? 0} lines · {paymentBreakdown(salePayments(completedSale))} · {completedSale.branchName}
               </p>
             </div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-left text-xs">
@@ -729,6 +825,14 @@ export function PosPage() {
           </div>
         </div>
       )}
+      <InvoicePrintPreview
+        open={invoiceOpen}
+        sale={completedSale}
+        store={storeInfo}
+        savedSilentSettings={silentSettings}
+        onSaveSilentSettings={saveSilentSettings}
+        onClose={() => setInvoiceOpen(false)}
+      />
     </div>
   )
 }

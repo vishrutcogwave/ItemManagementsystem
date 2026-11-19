@@ -1,4 +1,7 @@
+import type { InvoicePrintSettings } from '../lib/invoiceTemplate'
+import { renderDriverInvoice, type DriverInvoice } from './driverInvoice'
 import { api, errorMessage } from '../lib/api'
+import { type InvoiceRaster, renderInvoiceRaster } from './invoiceRaster'
 import { printSaleReceipt } from '../lib/documents'
 import { buildSaleReceiptLines, type StoreInfo, type ThermalLine } from './thermalReceipt'
 import type {
@@ -35,6 +38,7 @@ export interface BridgeStatus {
   deviceName?: string
   defaultPrinter?: string | null
   paired?: boolean
+  driverInvoices?: boolean
 }
 
 export interface BridgeTestResult {
@@ -192,17 +196,30 @@ export interface ThermalJobPayload {
   document: {
     type: 'SALE_RECEIPT'
     saleNumber: string
-    lines: ThermalLine[]
+    lines?: ThermalLine[]
+    raster?: InvoiceRaster
+    driverInvoice?: DriverInvoice
   }
   requestedAt: string
 }
 
-async function sendJobToBridge(job: PrintJob, sale: Sale, store: StoreInfo, platform: PrintPlatform): Promise<void> {
-  const paperWidth: PaperWidth = job.paperWidth ?? (platform === 'ANDROID' ? 'MM58' : 'MM80')
+async function sendJobToBridge(
+  job: PrintJob, sale: Sale, store: StoreInfo, platform: PrintPlatform, invoiceLayout = false, invoiceSettings?: InvoicePrintSettings,
+): Promise<void> {
+  const selected = invoiceSettings?.paper.kind
+  const invoicePaper = selected === 'MM58' || selected === 'MM80' ? selected : undefined
+  if (invoicePaper && job.paperWidth && job.paperWidth !== invoicePaper) {
+    throw new BridgeError('The saved POS invoice paper size differs from the printer size. Match them in POS print settings or Settings → Printers.')
+  }
+  const paperWidth: PaperWidth = job.paperWidth ?? invoicePaper ?? (!invoiceLayout && platform === 'ANDROID' ? 'MM58' : 'MM80')
   if (platform === 'ANDROID' && (!job.printerIpAddress || !job.printerPort)) {
     throw new BridgeError(
       'No receipt printer is configured for this branch. Ask the store owner to add one in Settings → Printers.',
     )
+  }
+  const driverSettings = platform === 'WINDOWS' && !invoicePaper ? invoiceSettings : undefined
+  if (driverSettings && !(await fetchBridgeStatus('WINDOWS')).driverInvoices) {
+    throw new BridgeError('Update the Windows print bridge to print A4, A5 or custom invoices silently.')
   }
   const payload: ThermalJobPayload = {
     jobId: job.id,
@@ -216,7 +233,11 @@ async function sendJobToBridge(job: PrintJob, sale: Sale, store: StoreInfo, plat
     document: {
       type: 'SALE_RECEIPT',
       saleNumber: sale.salesNumber,
-      lines: buildSaleReceiptLines(sale, store, paperWidth),
+      ...(driverSettings
+        ? { driverInvoice: await renderDriverInvoice(sale, store, driverSettings) }
+        : invoiceLayout
+        ? { raster: await renderInvoiceRaster(sale, store, paperWidth) }
+        : { lines: buildSaleReceiptLines(sale, store, paperWidth) }),
     },
     requestedAt: new Date().toISOString(),
   }
@@ -256,6 +277,8 @@ export interface PrintSaleOptions {
   store: StoreInfo
   trigger?: 'AUTO' | 'MANUAL'
   printerConfigId?: number | null
+  invoiceLayout?: boolean
+  invoiceSettings?: InvoicePrintSettings
   platform?: DetectedPlatform
 }
 
@@ -295,11 +318,14 @@ export async function printSaleThermal(sale: Sale, options: PrintSaleOptions): P
   }
 
   try {
-    await sendJobToBridge(job, sale, options.store, platform)
+    await sendJobToBridge(job, sale, options.store, platform, options.invoiceLayout, options.invoiceSettings)
     await updateJobStatus(job.id, 'PRINTED')
     return { status: 'PRINTED', job }
   } catch (error) {
-    const message = errorMessage(error)
+    const failure = errorMessage(error)
+    const message = options.invoiceLayout && /has no lines|line count/i.test(failure)
+      ? 'Update the local print bridge to print this invoice silently.'
+      : failure
     await updateJobStatus(job.id, 'FAILED', message)
     return { status: 'FAILED', message, job }
   }

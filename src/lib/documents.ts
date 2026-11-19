@@ -1,3 +1,4 @@
+import { paymentBreakdown, salePayments } from './salePayments'
 import type { Purchase, Sale, SupplierPayment } from '../types'
 import { printHtml, printDocument } from './export'
 import { formatDate, money, qty } from './format'
@@ -123,7 +124,7 @@ export function printSaleReceipt(sale: Sale, store: StoreInfo): void {
     .join('')
 
   printHtml(
-    `<div style="max-width:300px;margin:0 auto;font-family:'Courier New',monospace;font-size:11px;line-height:1.45;color:#111">
+    `<div style="max-width:300px;margin:0 auto;font-family:'Courier New',monospace;font-size:12px;line-height:1.45;color:#111">
       <div style="text-align:center;margin-bottom:8px">
         <p style="font-size:15px;font-weight:700;margin:0;letter-spacing:0.02em">${escapeHtml(store.name)}</p>
         ${store.address ? `<p style="margin:2px 0">${escapeHtml(store.address)}</p>` : ''}
@@ -139,7 +140,7 @@ export function printSaleReceipt(sale: Sale, store: StoreInfo): void {
         ${sale.customerMobile ? `<div>Mobile: ${escapeHtml(sale.customerMobile)}</div>` : ''}
         ${sale.customerState ? `<div>Place of supply: ${escapeHtml(sale.customerState)}</div>` : ''}
       </div>
-      <table style="width:100%;border-collapse:collapse;margin:0;font-size:11px">
+      <table style="width:100%;border-collapse:collapse;margin:0;font-size:12px">
         <thead><tr>
           <th style="text-align:left;padding:3px 6px 3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em">ITEM</th>
           <th style="text-align:right;padding:3px 0;border-bottom:1px dashed #9ca3af;background:transparent;font-size:10px;letter-spacing:0.04em;white-space:nowrap">QTY</th>
@@ -161,7 +162,7 @@ export function printSaleReceipt(sale: Sale, store: StoreInfo): void {
         <div style="display:flex;justify-content:space-between;gap:12px;border-top:1px dashed #9ca3af;margin-top:4px;padding-top:4px;font-weight:700;font-size:13px"><span>GRAND TOTAL</span><span style="white-space:nowrap">${money(sale.grandTotal)}</span></div>
       </div>
       <div style="${rule};padding-top:6px">
-        <div>Payment: ${escapeHtml(sale.paymentMethod)}</div>
+        <div>Payment: ${escapeHtml(paymentBreakdown(salePayments(sale)))}</div>
         ${totalRow('Paid', money(sale.paidAmount))}
         ${Number(sale.balanceAmount) > 0 ? totalRow('Balance', money(sale.balanceAmount), true) : ''}
       </div>

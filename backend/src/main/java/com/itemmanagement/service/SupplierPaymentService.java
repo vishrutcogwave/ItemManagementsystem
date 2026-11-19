@@ -26,10 +26,12 @@ import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
 import com.itemmanagement.util.PageResponse;
 import com.itemmanagement.util.Pagination;
+import com.itemmanagement.util.DocumentNumberOrder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -289,7 +291,7 @@ public class SupplierPaymentService {
                 .filter(row -> settlement == null || settlement.isBlank()
                         || row.settlementStatus().equalsIgnoreCase(settlement.trim()))
                 .sorted(Comparator.comparing(SupplierBillReportResponse.Row::purchaseDate).reversed()
-                        .thenComparing(SupplierBillReportResponse.Row::purchaseNumber))
+                        .thenComparing(SupplierBillReportResponse.Row::purchaseNumber, DocumentNumberOrder.ASCENDING))
                 .toList();
         BigDecimal grand = BigDecimal.ZERO;
         BigDecimal paid = BigDecimal.ZERO;
@@ -319,7 +321,9 @@ public class SupplierPaymentService {
         List<SupplierPaymentReportResponse.Row> rows = payments.stream()
                 .map(payment -> {
                     Supplier supplier = suppliers.get(payment.getSupplierId());
-                    String bills = allocations.getOrDefault(payment.getId(), List.of()).stream()
+                    List<SupplierPaymentAllocation> visible = scopedAllocations(
+                            allocations.getOrDefault(payment.getId(), List.of()), purchases, branchIds);
+                    String bills = visible.stream()
                             .map(allocation -> purchases.get(allocation.getPurchaseId()))
                             .filter(Objects::nonNull)
                             .map(Purchase::getPurchaseNumber)
@@ -327,7 +331,7 @@ public class SupplierPaymentService {
                     return new SupplierPaymentReportResponse.Row(payment.getPaymentNumber(),
                             payment.getPaymentDate(), supplierCode(payment.getSupplierId()),
                             supplier == null ? "" : supplier.getSupplierName(), bills,
-                            payment.getPaymentMethod().name(), money(payment.getAmount()),
+                            payment.getPaymentMethod().name(), scopedPaymentAmount(payment, visible, branchIds),
                             payment.getReferenceNumber(), payment.getRemarks(),
                             payment.getCreatedByName());
                 })
@@ -340,8 +344,8 @@ public class SupplierPaymentService {
                 new SupplierPaymentReportResponse.Totals(money(total), rows.size()));
     }
 
-    @Transactional(readOnly = true)
-    public SupplierLedgerReportResponse supplierLedger(Long supplierId, LocalDate from, LocalDate to) {
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public SupplierLedgerReportResponse supplierLedger(Long supplierId, LocalDate from, LocalDate to, Long branchId) {
         if (supplierId == null) {
             throw ApiException.badRequest("Select a supplier to view the ledger");
         }
@@ -349,7 +353,7 @@ public class SupplierPaymentService {
         DateRange range = range(from, to);
         Supplier supplier = supplierRepository.findByIdAndStoreId(supplierId, storeId)
                 .orElseThrow(() -> ApiException.notFound("Supplier not found"));
-        List<Long> branchIds = branchScope(null);
+        List<Long> branchIds = branchScope(branchId);
 
         List<Purchase> bills = purchaseRepository
                 .findSupplierBills(storeId, supplierId, branchIds, PurchaseStatus.COMPLETED)
@@ -357,6 +361,10 @@ public class SupplierPaymentService {
                 .filter(purchase -> accessible(purchase))
                 .filter(purchase -> !purchase.getPurchaseDate().isAfter(range.to()))
                 .toList();
+        Map<Long, BigDecimal> totalAllocated = bills.isEmpty() ? Map.of() : allocationRepository
+                .totalsByPurchase(storeId, bills.stream().map(Purchase::getId).toList()).stream()
+                .collect(Collectors.toMap(SupplierPaymentAllocationRepository.PurchaseAllocationTotal::getPurchaseId,
+                        SupplierPaymentAllocationRepository.PurchaseAllocationTotal::getAmount));
         List<SupplierPayment> payments = paymentRepository
                 .findByStoreIdAndSupplierIdAndPaymentDateLessThanEqualOrderByPaymentDateAscIdAsc(
                         storeId, supplierId, range.to());
@@ -371,21 +379,32 @@ public class SupplierPaymentService {
         List<SupplierLedgerReportResponse.Row> events = new ArrayList<>();
 
         for (Purchase bill : bills) {
-            boolean before = bill.getPurchaseDate().isBefore(range.from());
-            if (before) {
-                openingDebit = openingDebit.add(money(bill.getGrandTotal()));
+            BigDecimal purchaseAmount = money(bill.getGrandTotal());
+            // Paid amount includes later allocations, even those beyond this report's end date.
+            BigDecimal initialPayment = money(bill.getPaidAmount())
+                    .subtract(totalAllocated.getOrDefault(bill.getId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+            if (bill.getPurchaseDate().isBefore(range.from())) {
+                openingDebit = openingDebit.add(purchaseAmount);
+                openingCredit = openingCredit.add(initialPayment);
                 continue;
             }
             events.add(new SupplierLedgerReportResponse.Row(bill.getPurchaseDate(), "PURCHASE",
                     bill.getPurchaseNumber(), "Purchase bill " + bill.getPurchaseNumber(),
-                    money(bill.getGrandTotal()), BigDecimal.ZERO, BigDecimal.ZERO));
-            totalDebit = totalDebit.add(money(bill.getGrandTotal()));
+                    purchaseAmount, BigDecimal.ZERO, BigDecimal.ZERO));
+            totalDebit = totalDebit.add(purchaseAmount);
+            if (initialPayment.signum() > 0) {
+                events.add(new SupplierLedgerReportResponse.Row(bill.getPurchaseDate(), "PAYMENT",
+                        bill.getPurchaseNumber(), "Paid at purchase · bill " + bill.getPurchaseNumber(),
+                        BigDecimal.ZERO, initialPayment, BigDecimal.ZERO));
+                totalCredit = totalCredit.add(initialPayment);
+            }
         }
         for (SupplierPayment payment : payments) {
             boolean before = payment.getPaymentDate().isBefore(range.from());
             for (SupplierPaymentAllocation allocation : allocations.getOrDefault(payment.getId(), List.of())) {
                 Purchase bill = purchases.get(allocation.getPurchaseId());
-                if (bill == null || !accessible(bill)) {
+                if (bill == null || !accessible(bill)
+                        || (branchId != null && !branchId.equals(bill.getBranchId()))) {
                     continue;
                 }
                 BigDecimal value = money(allocation.getAmount());
@@ -404,7 +423,7 @@ public class SupplierPaymentService {
 
         events.sort(Comparator.comparing(SupplierLedgerReportResponse.Row::date)
                 .thenComparing(row -> row.type().equals("PURCHASE") ? 0 : 1)
-                .thenComparing(SupplierLedgerReportResponse.Row::reference));
+                .thenComparing(SupplierLedgerReportResponse.Row::reference, DocumentNumberOrder.ASCENDING));
         BigDecimal balance = money(openingDebit.subtract(openingCredit));
         List<SupplierLedgerReportResponse.Row> rows = new ArrayList<>();
         for (SupplierLedgerReportResponse.Row event : events) {
@@ -451,7 +470,9 @@ public class SupplierPaymentService {
     private SupplierPaymentResponse toResponse(SupplierPayment payment, Supplier supplier,
                                                List<SupplierPaymentAllocation> allocations,
                                                Map<Long, Purchase> purchases) {
-        List<SupplierPaymentResponse.AllocationResponse> lines = allocations.stream()
+        List<Long> branches = branchScope(null);
+        List<SupplierPaymentAllocation> visible = scopedAllocations(allocations, purchases, branches);
+        List<SupplierPaymentResponse.AllocationResponse> lines = visible.stream()
                 .map(allocation -> {
                     Purchase purchase = purchases.get(allocation.getPurchaseId());
                     return new SupplierPaymentResponse.AllocationResponse(allocation.getPurchaseId(),
@@ -463,8 +484,26 @@ public class SupplierPaymentService {
         return new SupplierPaymentResponse(payment.getId(), payment.getPaymentNumber(),
                 payment.getPaymentDate(), payment.getSupplierId(), supplierCode(payment.getSupplierId()),
                 supplier == null ? "" : supplier.getSupplierName(), payment.getPaymentMethod(),
-                money(payment.getAmount()), payment.getReferenceNumber(), payment.getRemarks(),
+                scopedPaymentAmount(payment, visible, branches), payment.getReferenceNumber(), payment.getRemarks(),
                 payment.getCreatedBy(), payment.getCreatedByName(), payment.getCreatedAt(), lines);
+    }
+
+    private List<SupplierPaymentAllocation> scopedAllocations(List<SupplierPaymentAllocation> allocations,
+                                                              Map<Long, Purchase> purchases, List<Long> branches) {
+        if (branches == null) {
+            return allocations;
+        }
+        return allocations.stream().filter(allocation -> {
+            Purchase bill = purchases.get(allocation.getPurchaseId());
+            return bill != null && branches.contains(bill.getBranchId());
+        }).toList();
+    }
+
+    private BigDecimal scopedPaymentAmount(SupplierPayment payment, List<SupplierPaymentAllocation> visible,
+                                            List<Long> branches) {
+        return branches == null ? money(payment.getAmount())
+                : money(visible.stream().map(SupplierPaymentAllocation::getAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     private Map<Long, List<SupplierPaymentAllocation>> allocationsByPayment(List<SupplierPayment> payments) {

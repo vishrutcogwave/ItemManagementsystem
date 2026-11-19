@@ -110,7 +110,11 @@ export type LabelItem = Pick<Item, 'itemName' | 'itemCode' | 'barcode' | 'barcod
  * Builds a print-ready sheet of 50 x 30 mm labels. Each label shows the item
  * name, item code, scannable symbol and selling price.
  */
-export function buildLabelSheetHtml(item: LabelItem, copies: number): string {
+export function buildLabelSheetHtml(
+  item: LabelItem,
+  copies: number,
+  roll?: { width: number; height: number; gap: number; left: number; total: number },
+): string {
   const barcode = barcodeSvgMarkup(item.barcode, item.barcodeFormat, {
     height: 46,
     width: 1.8,
@@ -124,7 +128,7 @@ export function buildLabelSheetHtml(item: LabelItem, copies: number): string {
     <div class="label-symbol">${barcode}</div>
     <p class="label-price">&#8377; ${Number(item.rate).toFixed(2)}</p>
   </div>`
-  return `<style>
+  const sheet = `<style>
     @page { margin: 6mm; }
     .label-sheet { display: flex; flex-wrap: wrap; gap: 4mm; padding: 0; }
     .barcode-label {
@@ -141,7 +145,24 @@ export function buildLabelSheetHtml(item: LabelItem, copies: number): string {
     .label-price { margin: 0; font-size: 9.5pt; font-weight: 700; color: #111827; }
     @media print { .barcode-label { border-color: #d1d5db; } }
   </style>
-  <div class="label-sheet">${label.repeat(Math.max(1, copies))}</div>`
+  `
+  if (!roll) return sheet + `<div class="label-sheet">${label.repeat(Math.max(1, copies))}</div>`
+
+  const rows = Array.from({ length: Math.ceil(copies / 2) }, (_, index) =>
+    `<div class="roll-row">${label.repeat(Math.min(2, copies - index * 2))}</div>`).join('')
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Barcode labels</title>
+    ${sheet}
+    <style>
+      @page { size: ${roll.total}mm ${roll.height}mm; margin: 0; }
+      html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+      .roll-row { display: grid; grid-template-columns: repeat(2, ${roll.width}mm);
+        width: ${roll.total}mm; height: ${roll.height}mm; box-sizing: border-box;
+        padding-left: ${roll.left}mm; gap: ${roll.gap}mm; overflow: hidden; }
+      .roll-row:not(:last-child) { break-after: page; }
+      .barcode-label { width: ${roll.width}mm; height: ${roll.height}mm; border: 0; }
+      .label-symbol { min-height: 0; flex-shrink: 1; }
+      .label-symbol svg { height: 100%; }
+    </style></head><body>${rows}</body></html>`
 }
 
 /**

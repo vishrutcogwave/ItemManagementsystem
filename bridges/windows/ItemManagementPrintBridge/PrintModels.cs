@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text.Json.Serialization;
 
 namespace ItemManagement.PrintBridge;
@@ -17,6 +18,10 @@ public sealed class ThermalLine
     public bool DoubleSize { get; set; }
 }
 
+public sealed record InvoiceRaster(int Width, int Height, byte[] Bits);
+
+public sealed record DriverInvoice(double WidthMm, double HeightMm, double MarginMm, List<byte[]> Pages);
+
 public sealed class DocumentPayload
 {
     [JsonPropertyName("type")]
@@ -24,6 +29,12 @@ public sealed class DocumentPayload
 
     [JsonPropertyName("saleNumber")]
     public string SaleNumber { get; set; } = string.Empty;
+
+    [JsonPropertyName("raster")]
+    public InvoiceRaster? Raster { get; set; }
+
+    [JsonPropertyName("driverInvoice")]
+    public DriverInvoice? DriverInvoice { get; set; }
 
     [JsonPropertyName("lines")]
     public List<ThermalLine> Lines { get; set; } = new();
@@ -78,6 +89,29 @@ internal static class PayloadValidator
         if (payload.PaperWidth is not ("MM58" or "MM80")) return "Paper width must be MM58 or MM80.";
         if (payload.Document is null) return "The document is missing.";
         if (!string.Equals(payload.Document.Type, "SALE_RECEIPT", StringComparison.OrdinalIgnoreCase)) return "Unsupported document type.";
+        if (payload.Document.DriverInvoice is { } invoice)
+        {
+            if (!double.IsFinite(invoice.WidthMm) || !double.IsFinite(invoice.HeightMm) ||
+                !double.IsFinite(invoice.MarginMm) || invoice.WidthMm is < 40 or > 600 ||
+                invoice.HeightMm is < 40 or > 1200 || invoice.MarginMm is < 0 or > 20 ||
+                2 * invoice.MarginMm >= Math.Min(invoice.WidthMm, invoice.HeightMm) ||
+                invoice.Pages is null || invoice.Pages.Count is < 1 or > 16 ||
+                invoice.Pages.Any(page => !IsValidPageImage(page)))
+            {
+                return "The Windows invoice page data is invalid.";
+            }
+            return null;
+        }
+        if (payload.Document.Raster is { } raster)
+        {
+            var width = payload.PaperWidth == "MM58" ? 384 : 576;
+            if (raster.Width != width || raster.Height is < 1 or > 5000 ||
+                raster.Bits is null || raster.Bits.Length != width / 8 * raster.Height)
+            {
+                return "The thermal invoice image is invalid.";
+            }
+            return null;
+        }
         if (payload.Document.Lines is null || payload.Document.Lines.Count == 0) return "The receipt has no lines.";
         if (payload.Document.Lines.Count > MaxLines) return "The receipt has too many lines.";
         var total = 0;
@@ -91,5 +125,16 @@ internal static class PayloadValidator
         }
         if (total > 20000) return "The receipt content is too large.";
         return null;
+    }
+
+    private static bool IsValidPageImage(byte[]? bytes)
+    {
+        if (bytes is null || bytes.Length < 33 ||
+            !bytes.AsSpan(0, 8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }) ||
+            !bytes.AsSpan(12, 4).SequenceEqual("IHDR"u8)) return false;
+
+        var width = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(16, 4));
+        var height = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(20, 4));
+        return width is >= 1 and <= 4096 && height is >= 1 and <= 4096;
     }
 }

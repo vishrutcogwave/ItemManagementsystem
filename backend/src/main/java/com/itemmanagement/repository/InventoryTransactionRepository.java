@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -50,6 +51,23 @@ public interface InventoryTransactionRepository extends JpaRepository<InventoryT
             """)
     List<InventoryTransaction> findForPeriod(@Param("storeId") Long storeId, @Param("branchId") Long branchId,
                                              @Param("from") Instant from, @Param("to") Instant to);
+
+    interface NetMovement {
+        Long getBranchId();
+        Long getItemId();
+        BigDecimal getNetQuantity();
+    }
+
+    @Query("""
+            select t.branchId as branchId, t.itemId as itemId,
+                   sum(t.quantityIn) - sum(t.quantityOut) as netQuantity
+            from InventoryTransaction t
+            where t.storeId = :storeId and t.branchId in :branchIds and t.transactionDate >= :after
+            group by t.branchId, t.itemId
+            """)
+    List<NetMovement> netMovementAfter(@Param("storeId") Long storeId,
+                                       @Param("branchIds") Collection<Long> branchIds,
+                                       @Param("after") Instant after);
 
     List<InventoryTransaction> findByStoreIdAndTransactionDateGreaterThanEqualAndTransactionDateLessThan(
             Long storeId, Instant from, Instant to);

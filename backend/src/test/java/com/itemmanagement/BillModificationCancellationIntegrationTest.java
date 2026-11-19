@@ -2,21 +2,28 @@ package com.itemmanagement;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.itemmanagement.dto.auth.RegisterStoreRequest;
+import com.itemmanagement.service.NumberGenerator;
 import com.itemmanagement.service.StoreProvisioningService;
+import com.itemmanagement.util.DocumentNumberOrder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +61,246 @@ class BillModificationCancellationIntegrationTest {
     @Autowired
     private StoreProvisioningService provisioningService;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private NumberGenerator numberGenerator;
+
+    @Autowired
+    private TransactionTemplate transaction;
+
+    @Test
+    void salesKeepNumericAndHistoricalReferencesSearchableAcrossStores() {
+        Session store = registerStore();
+        Session other = registerStore();
+        long category = createCategory(store, "Document numbers");
+        ItemRef item = createItem(store, category, "NUMBER", taxIdByRate(store, "5"));
+        JsonNode purchase = purchase(store, createSupplier(store, "NUMBER"), item.id(), "10", "COMPLETED");
+        assertTrue(purchase.get("purchaseNumber").asText().matches("[1-9][0-9]*"));
+        JsonNode historical = sale(store, item.id(), "1");
+        jdbc.update("UPDATE sales SET sales_number = ? WHERE id = ?", "SAL-1109", historical.get("id").asLong());
+        JsonNode current = sale(store, item.id(), "1");
+        String number = current.get("salesNumber").asText();
+        assertTrue(number.matches("[1-9][0-9]*"));
+        assertEquals(number, jdbc.queryForObject("SELECT sales_number FROM sales WHERE id = ?",
+                String.class, current.get("id").asLong()));
+        for (String reference : List.of("SAL-1109", number)) {
+            JsonNode found = call(HttpMethod.GET, "/api/sales?search=" + reference, null, store.token(), HttpStatus.OK);
+            assertEquals(reference, found.at("/content/0/salesNumber").asText());
+            JsonNode isolated = call(HttpMethod.GET, "/api/sales?search=" + reference, null, other.token(), HttpStatus.OK);
+            assertEquals(0, isolated.get("totalElements").asInt());
+        }
+        JsonNode movements = call(HttpMethod.GET, "/api/inventory/transactions?search=" + number,
+                null, store.token(), HttpStatus.OK);
+        assertTrue(java.util.stream.StreamSupport.stream(movements.get("content").spliterator(), false)
+                .anyMatch(row -> number.equals(row.get("referenceNumber").asText())
+                        && "SALE_OUT".equals(row.get("transactionType").asText())));
+    }
+
+    @Test
+    void concurrentPosAndRegularSalesUseDistinctPersistedNumbers() throws Exception {
+        Session store = registerStore();
+        ItemRef item = createItem(store, createCategory(store, "Concurrent numbers"), "SEQ", taxIdByRate(store, "5"));
+        purchase(store, createSupplier(store, "SEQ"), item.id(), "10", "COMPLETED");
+        var pos = map("branchId", store.branchId(), "pos", true,
+                "items", List.of(modificationLine(item.id(), "1", "20", "0")),
+                "payments", List.of(map("method", "CASH", "amount", 10), map("method", "UPI", "amount", 11)));
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<JsonNode> regular = pool.submit(() -> {
+                start.await();
+                return sale(store, item.id(), "1");
+            });
+            Future<JsonNode> split = pool.submit(() -> {
+                start.await();
+                return call(HttpMethod.POST, "/api/sales/split", pos, store.token(), HttpStatus.OK);
+            });
+            start.countDown();
+            JsonNode first = regular.get(15, TimeUnit.SECONDS);
+            JsonNode second = split.get(15, TimeUnit.SECONDS);
+            String regularNumber = first.get("salesNumber").asText();
+            String posNumber = second.get("salesNumber").asText();
+            assertTrue(regularNumber.matches("[1-9][0-9]*"));
+            assertTrue(posNumber.matches("[1-9][0-9]*"));
+            assertEquals(1L, Math.abs(Long.parseLong(regularNumber) - Long.parseLong(posNumber)));
+            assertEquals(2, jdbc.queryForObject(
+                    "SELECT COUNT(DISTINCT sales_number) FROM sales WHERE id IN (?, ?)", Integer.class,
+                    first.get("id").asLong(), second.get("id").asLong()));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void reportsSortNumericDocumentNumbersNumericallyAndKeepLegacyReferences() {
+        assertEquals(List.of("SAL-1001", "SAL-1009", "1", "2", "10"),
+                List.of("10", "SAL-1009", "2", "1", "SAL-1001").stream()
+                        .sorted(DocumentNumberOrder.ASCENDING).toList());
+    }
+
+    @Test
+    void upgradeKeepsPrefixedRecordsAndReservesAlreadyUsedNumericNumbers() throws Exception {
+        String migration = new ClassPathResource("db/migration/V14__numeric_document_sequences.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        transaction.executeWithoutResult(status -> {
+            jdbc.execute("CREATE SCHEMA numbering_upgrade_test");
+            jdbc.execute("SET LOCAL search_path TO numbering_upgrade_test");
+            Map.of("purchases", "purchase_number", "sales", "sales_number",
+                    "stock_transfers", "transfer_number", "stock_adjustments", "adjustment_number",
+                    "item_import_batches", "import_number", "supplier_payments", "payment_number",
+                    "sale_modifications", "modification_number", "sale_cancellations", "cancellation_number")
+                    .forEach((table, column) -> jdbc.execute("CREATE TABLE " + table + " (" + column + " text)"));
+            jdbc.execute("INSERT INTO sales VALUES ('SAL-1109'), ('12'), ('15')");
+            jdbc.execute("INSERT INTO purchases VALUES ('PUR-2000')");
+            jdbc.execute(migration);
+            assertEquals(16L, jdbc.queryForObject("SELECT nextval('sale_document_seq')", Long.class));
+            assertEquals(1L, jdbc.queryForObject("SELECT nextval('purchase_document_seq')", Long.class));
+            assertEquals(List.of("12", "15", "SAL-1109"),
+                    jdbc.queryForList("SELECT sales_number FROM sales ORDER BY sales_number", String.class));
+            status.setRollbackOnly();
+        });
+    }
+
+    @Test
+    void documentSequencesAreIndependentAndNeverReuseRolledBackAllocations() throws Exception {
+        String rolledBack = transaction.execute(status -> {
+            String number = numberGenerator.nextSale();
+            status.setRollbackOnly();
+            return number;
+        });
+        ExecutorService pool = Executors.newFixedThreadPool(4);
+        try {
+            List<Future<String>> allocations = new ArrayList<>();
+            for (int index = 0; index < 8; index++) {
+                allocations.add(pool.submit(numberGenerator::nextSale));
+            }
+            var numbers = new HashSet<String>();
+            for (Future<String> allocation : allocations) {
+                String number = allocation.get(10, TimeUnit.SECONDS);
+                assertTrue(Long.parseLong(number) > Long.parseLong(rolledBack));
+                assertTrue(numbers.add(number), "Concurrent allocation reused a number");
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        Long before = jdbc.queryForObject("SELECT last_value FROM sale_document_seq", Long.class);
+        assertTrue(numberGenerator.nextPurchase().matches("[1-9][0-9]*"));
+        assertEquals(before, jdbc.queryForObject("SELECT last_value FROM sale_document_seq", Long.class));
+        assertEquals(8, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_sequences WHERE schemaname = 'public' "
+                        + "AND sequencename LIKE '%_document_seq' AND start_value = 1", Integer.class));
+    }
+
     // ---------- modification ----------
+
+    @Test
+    void posSalePersistsSplitPaymentsAndRejectsInvalidTender() {
+        Session session = registerStore();
+        long category = createCategory(session, "POS tender");
+        ItemRef item = createItem(session, category, "POS", taxIdByRate(session, "5"));
+        purchase(session, createSupplier(session, "POS"), item.id(), "10", "COMPLETED");
+        var body = map("branchId", session.branchId(), "pos", true,
+                "items", List.of(modificationLine(item.id(), "2", "20", "0")));
+
+        call(HttpMethod.POST, "/api/sales/split", body, session.token(), HttpStatus.BAD_REQUEST);
+        body.put("payments", List.of(map("method", "CASH", "amount", 42)));
+        call(HttpMethod.POST, "/api/sales/split", body, session.token(), HttpStatus.BAD_REQUEST);
+        for (var payments : List.of(
+                List.of(map("method", "CASH", "amount", 40), map("method", "UPI", "amount", 3)),
+                List.of(map("method", "CASH", "amount", 10), map("method", "CASH", "amount", 12)),
+                List.of(map("method", "CASH", "amount", 10), map("method", "CREDIT", "amount", 12)),
+                List.of(map("method", "CASH", "amount", 10), map("method", "UPI", "amount", 0)))) {
+            body.put("payments", payments);
+            call(HttpMethod.POST, "/api/sales/split", body, session.token(), HttpStatus.BAD_REQUEST);
+        }
+        assertEquals(0, stockOf(session, item.code()).compareTo(BigDecimal.TEN));
+
+        body.put("payments", List.of(map("method", "CASH", "amount", 12), map("method", "UPI", "amount", 10),
+                map("method", "CARD", "amount", 10), map("method", "BANK", "amount", 5)));
+        JsonNode created = call(HttpMethod.POST, "/api/sales/split", body, session.token(), HttpStatus.OK);
+        assertTrue(created.get("salesNumber").asText().matches("[1-9][0-9]*"));
+        assertMoney(created.get("paidAmount"), "37");
+        assertMoney(created.get("balanceAmount"), "5");
+        JsonNode saved = call(HttpMethod.GET, "/api/sales/" + created.get("id").asLong(),
+                null, session.token(), HttpStatus.OK);
+        assertEquals(created.get("payments"), saved.get("payments"));
+        assertEquals(4, saved.get("payments").size());
+        JsonNode summary = call(HttpMethod.GET, "/api/reports/payment-summary", null, session.token(), HttpStatus.OK);
+        assertMoney(summary.get("collected"), "37");
+        assertEquals(4, summary.get("methods").size());
+        assertEquals(1, summary.get("bills").asInt());
+    }
+
+    @Test
+    void paymentOnlyEditsPreserveBillsAndReportOnlyCurrentTender() {
+        Session session = registerStore();
+        long category = createCategory(session, "Tender");
+        ItemRef item = createItem(session, category, "TND", taxIdByRate(session, "5"));
+        purchase(session, createSupplier(session, "TND"), item.id(), "10", "COMPLETED");
+        JsonNode original = sale(session, item.id(), "2");
+        String path = "/api/sales/" + original.get("id").asLong() + "/modifications";
+        var lines = List.of(modificationLine(item.id(), "2", "20", "0"));
+
+        var invalid = modificationBody("Invalid tender", 0, lines);
+        for (String amount : List.of("-1", "0", "1.001", "42.01")) {
+            invalid.put("payments", List.of(map("method", "UPI", "amount", new BigDecimal(amount))));
+            call(HttpMethod.POST, path, invalid, session.token(), HttpStatus.BAD_REQUEST);
+        }
+        invalid.put("payments", List.of(map("method", "UPI", "amount", 5), map("method", "UPI", "amount", 6)));
+        call(HttpMethod.POST, path, invalid, session.token(), HttpStatus.BAD_REQUEST);
+
+        var revisions = List.of(
+                List.of(map("method", "BANK", "amount", 42)),
+                List.of(map("method", "CASH", "amount", 12), map("method", "UPI", "amount", 30)),
+                List.of(map("method", "CASH", "amount", 12), map("method", "CARD", "amount", 30)),
+                List.of(map("method", "CASH", "amount", 12), map("method", "UPI", "amount", 10),
+                        map("method", "CARD", "amount", 15)));
+        for (int revision = 0; revision < revisions.size(); revision++) {
+            var body = modificationBody("Payment correction", revision, lines);
+            var payments = revisions.get(revision);
+            body.put("payments", payments);
+            JsonNode preview = call(HttpMethod.POST, path + "/preview", body, session.token(), HttpStatus.OK);
+            assertMoney(preview.get("modifiedTotal"), "42.00");
+            JsonNode applied = call(HttpMethod.POST, path, body, session.token(), HttpStatus.OK);
+            assertEquals(payments.size(), applied.get("sale").get("payments").size());
+            assertEquals(revision + 1, applied.get("sale").get("modificationCount").asInt());
+            assertNotNull(applied.get("modifiedBy"));
+            assertNotNull(applied.get("modifiedAt"));
+            assertEquals(0, applied.get("lines").size());
+            assertEquals(0, stockOf(session, item.code()).compareTo(new BigDecimal("8")));
+            call(HttpMethod.POST, path, body, session.token(), HttpStatus.CONFLICT);
+        }
+
+        JsonNode history = call(HttpMethod.GET, path, null, session.token(), HttpStatus.OK);
+        assertEquals(4, history.size());
+        assertMoney(history.get(0).get("additionalPayable"), "5.00");
+        assertMoney(history.get(0).get("refundDue"), "0.00");
+        JsonNode first = history.get(3);
+        assertEquals("CASH", first.get("paymentsBefore").get(0).get("method").asText());
+        assertEquals("BANK", first.get("paymentsAfter").get(0).get("method").asText());
+
+        String report = "/api/reports/payment-summary?storeId=" + session.storeId()
+                + "&branchId=" + session.branchId();
+        JsonNode summary = call(HttpMethod.GET, report, null, session.token(), HttpStatus.OK);
+        assertMoney(summary.get("billAmount"), "42.00");
+        assertMoney(summary.get("collected"), "37.00");
+        assertEquals(1, summary.get("bills").asInt());
+        assertEquals(1, summary.get("partiallyPaid").asInt());
+        assertEquals(3, summary.get("methods").size());
+        JsonNode upi = call(HttpMethod.GET, report + "&method=UPI", null, session.token(), HttpStatus.OK);
+        assertMoney(upi.get("collected"), "10.00");
+        assertEquals(1, upi.get("methods").get(0).get("transactions").asInt());
+        JsonNode cashier = call(HttpMethod.GET, report + "&cashierId=" + summary.get("cashiers").get(0).get("id").asLong(),
+                null, session.token(), HttpStatus.OK);
+        assertMoney(cashier.get("collected"), "37.00");
+        JsonNode outOfRange = call(HttpMethod.GET, report + "&from=2000-01-01&to=2000-01-31",
+                null, session.token(), HttpStatus.OK);
+        assertEquals(0, outOfRange.get("bills").asInt());
+        call(HttpMethod.GET, "/api/reports/payment-summary?storeId=" + (session.storeId() + 1),
+                null, session.token(), HttpStatus.FORBIDDEN);
+    }
 
     @Test
     void modificationRecalculatesTaxTotalsAndStock() {
@@ -100,7 +346,7 @@ class BillModificationCancellationIntegrationTest {
                 modificationBody("Customer bought three more", 0,
                         List.of(modificationLine(item.id(), "5", "20", "0"))),
                 session.token(), HttpStatus.OK);
-        assertNotNull(applied.get("modificationNumber"));
+        assertTrue(applied.get("modificationNumber").asText().matches("[1-9][0-9]*"));
         assertEquals(1, applied.get("sale").get("modificationCount").asInt());
         assertMoney(applied.get("sale").get("subtotal"), "100.00");
         assertMoney(applied.get("sale").get("cgstAmount"), "2.50");
@@ -312,7 +558,7 @@ class BillModificationCancellationIntegrationTest {
 
         JsonNode cancelled = call(HttpMethod.POST, "/api/sales/" + saleId + "/cancel",
                 map("reason", "Customer cancelled the order"), session.token(), HttpStatus.OK);
-        assertNotNull(cancelled.get("cancellationNumber"));
+        assertTrue(cancelled.get("cancellationNumber").asText().matches("[1-9][0-9]*"));
         assertEquals("CANCELLED", cancelled.get("status").asText());
         assertEquals(saleId, cancelled.get("saleId").asLong());
         assertEquals("Customer cancelled the order", cancelled.get("reason").asText());

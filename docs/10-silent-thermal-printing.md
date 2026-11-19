@@ -32,6 +32,13 @@ the page shows a clear inline error and the job is recorded as `FAILED` in Print
 
 Bridges also cache the last 30 minutes of job keys, so a retried HTTP call cannot print twice.
 
+The POS **Thermal receipt** button sends the shared Retail invoice layout as a monochrome image
+to the local bridge. It uses the configured 58 mm or 80 mm width and opens no preview or print
+dialog. This path requires a bridge built with raster support and an ESC/POS-compatible thermal
+printer. On Windows, select that printer as the system default. On Android, use the branch's
+configured network printer. **Print invoice** still opens the invoice preview for paper selection.
+Automatic receipts and Print History reprints continue to use the text receipt format.
+
 ## 2. Database
 
 Migration `backend/src/main/resources/db/migration/V6__printing.sql` adds four tables:

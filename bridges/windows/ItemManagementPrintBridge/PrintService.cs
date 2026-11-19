@@ -71,6 +71,95 @@ public sealed class PrintService
         return PrintLines(lines, paperWidth, requestedMode, printer, testPrint: false);
     }
 
+    public PrintResult PrintInvoice(InvoiceRaster raster)
+    {
+        var printer = GetDefaultPrinter();
+        if (string.IsNullOrWhiteSpace(printer) || !IsPrinterInstalled(printer))
+        {
+            return new PrintResult(false, "Select an available thermal printer as the Windows default.", printer, null);
+        }
+
+        lock (_gate)
+        {
+            try
+            {
+                PrintRaw(printer, EscPos.BuildRaster(raster));
+                return new PrintResult(true, "Invoice sent to the default thermal printer.", printer, "raw");
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"Thermal invoice printing to '{printer}' failed: {ex.Message}");
+                return new PrintResult(false, $"Thermal invoice printing failed: {ex.Message}", printer, "raw");
+            }
+        }
+    }
+
+    public PrintResult PrintDriverInvoice(DriverInvoice invoice)
+    {
+        var printer = GetDefaultPrinter();
+        if (string.IsNullOrWhiteSpace(printer) || !IsPrinterInstalled(printer))
+        {
+            return new PrintResult(false, "Select an available Windows default printer.", printer, null);
+        }
+
+        lock (_gate)
+        {
+            try
+            {
+                DrawInvoicePages(invoice, printer);
+                return new PrintResult(true, "Invoice sent to the Windows printer.", printer, "gdi");
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"Invoice printing to '{printer}' failed: {ex.Message}");
+                return new PrintResult(false, $"Windows invoice printing failed: {ex.Message}", printer, "gdi");
+            }
+        }
+    }
+
+    private static void DrawInvoicePages(DriverInvoice invoice, string printer)
+    {
+        using var document = new PrintDocument();
+        document.PrinterSettings.PrinterName = printer;
+        document.PrinterSettings.Copies = 1;
+        document.PrintController = new StandardPrintController();
+        document.DocumentName = "Item Management Invoice";
+
+        var width = (int)Math.Round(invoice.WidthMm * 100 / 25.4);
+        var height = (int)Math.Round(invoice.HeightMm * 100 / 25.4);
+        var sizes = document.PrinterSettings.PaperSizes.Cast<PaperSize>().ToArray();
+        var paper = sizes.FirstOrDefault(size => Math.Abs(size.Width - width) <= 2 && Math.Abs(size.Height - height) <= 2);
+        var landscape = false;
+        if (paper is null)
+        {
+            paper = sizes.FirstOrDefault(size => Math.Abs(size.Width - height) <= 2 && Math.Abs(size.Height - width) <= 2);
+            landscape = paper is not null;
+        }
+
+        document.DefaultPageSettings.PaperSize = paper ?? new PaperSize("IMS Custom", width, height);
+        document.DefaultPageSettings.Landscape = landscape;
+        var margin = (float)(invoice.MarginMm * 100 / 25.4);
+        var page = 0;
+        document.PrintPage += (_, args) =>
+        {
+            var graphics = args.Graphics ?? throw new InvalidOperationException("The printer returned no graphics surface.");
+            var settings = args.PageSettings ?? throw new InvalidOperationException("The printer returned no page settings.");
+            var requested = new RectangleF(margin, margin, width - 2 * margin, height - 2 * margin);
+            var area = RectangleF.Intersect(requested, settings.PrintableArea);
+            if (area.Width <= 0 || area.Height <= 0)
+                throw new InvalidOperationException("The Windows printer cannot print on the saved paper size.");
+
+            using var stream = new MemoryStream(invoice.Pages[page], writable: false);
+            using var image = Image.FromStream(stream, useEmbeddedColorManagement: false, validateImageData: true);
+            var scale = Math.Min(area.Width / image.Width, area.Height / image.Height);
+            graphics.DrawImage(image, new RectangleF(
+                area.Left - settings.HardMarginX, area.Top - settings.HardMarginY,
+                image.Width * scale, image.Height * scale));
+            args.HasMorePages = ++page < invoice.Pages.Count;
+        };
+        document.Print();
+    }
+
     private PrintResult PrintLines(
         IReadOnlyList<ThermalLine> lines,
         string paperWidth,

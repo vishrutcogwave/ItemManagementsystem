@@ -17,7 +17,8 @@ import java.util.List;
 public record SaleModificationRequest(
         @Size(max = 500, message = "Reason is too long") String reason,
         @NotNull(message = "Reload the bill and try again") Integer baseModificationCount,
-        @NotEmpty(message = "A bill must keep at least one item") @Valid List<Line> items
+        @NotEmpty(message = "A bill must keep at least one item") @Valid List<Line> items,
+        @Size(max = 4) List<@NotNull @Valid SalePayment> payments
 ) {
     public record Line(
             @NotNull(message = "Item is required") Long itemId,

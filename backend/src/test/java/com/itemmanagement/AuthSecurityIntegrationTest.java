@@ -622,9 +622,11 @@ class AuthSecurityIntegrationTest {
     }
 
     private void runSqlScript(String fileName) throws Exception {
-        Path path = Files.exists(Path.of("..", "docs", "sql", fileName))
-                ? Path.of("..", "docs", "sql", fileName)
-                : Path.of("docs", "sql", fileName);
+        Path repository = Path.of(System.getProperty("ims.test.repositoryDir", "."));
+        Path path = repository.resolve(Path.of("docs", "sql", fileName));
+        if (!Files.exists(path)) {
+            path = repository.resolve(Path.of("..", "docs", "sql", fileName));
+        }
         assertTrue(Files.exists(path), "missing script: " + path.toAbsolutePath());
         try (Connection connection = dataSource.getConnection()) {
             ScriptUtils.executeSqlScript(connection, new FileSystemResource(path.toFile()));

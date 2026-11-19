@@ -12,6 +12,8 @@ import com.itemmanagement.dto.report.SupplierBillReportResponse;
 import com.itemmanagement.dto.report.SupplierLedgerReportResponse;
 import com.itemmanagement.dto.report.SupplierOutstandingReportResponse;
 import com.itemmanagement.dto.report.SupplierPaymentReportResponse;
+import com.itemmanagement.entity.enums.PaymentMethod;
+import com.itemmanagement.service.PaymentSummaryService;
 import com.itemmanagement.service.ReportService;
 import com.itemmanagement.service.SupplierPaymentService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,20 @@ public class ReportController {
 
     private final ReportService reportService;
     private final SupplierPaymentService supplierPaymentService;
+
+    private final PaymentSummaryService paymentSummaryService;
+
+    @GetMapping("/payment-summary")
+    @PreAuthorize("hasAuthority('REPORT_VIEW')")
+    public PaymentSummaryService.Summary paymentSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long storeId,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) Long cashierId,
+            @RequestParam(required = false) PaymentMethod method) {
+        return paymentSummaryService.summarize(from, to, storeId, branchId, cashierId, method);
+    }
 
     @GetMapping("/purchases")
     @PreAuthorize("hasAuthority('REPORT_VIEW')")
@@ -155,7 +171,8 @@ public class ReportController {
     public SupplierLedgerReportResponse supplierLedger(
             @RequestParam Long supplierId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return supplierPaymentService.supplierLedger(supplierId, from, to);
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long branchId) {
+        return supplierPaymentService.supplierLedger(supplierId, from, to, branchId);
     }
 }

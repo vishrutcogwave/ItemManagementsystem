@@ -34,6 +34,7 @@ import { useApi } from '../hooks/useApi'
 import { useUnits } from '../hooks/useUnits'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { formatDate, formatDateTime, money, qty, titleCase } from '../lib/format'
+import { collectionMethods, paymentBreakdown, paymentLabels, salePayments } from '../lib/salePayments'
 import { billPreview, isInterState } from '../lib/tax'
 import { unitOptionsFor, type UnitOption } from '../lib/units'
 import { useAuthStore } from '../store/auth'
@@ -43,6 +44,7 @@ import type {
   ModificationChangeType,
   Sale,
   SaleLine,
+  PaymentMethod,
   SaleModification,
   UnitMaster,
 } from '../types'
@@ -293,6 +295,15 @@ function BillEditor({
 }: BillEditorProps) {
   const [lines, setLines] = useState<EditLine[]>(() => sale.items.map(toEditLine))
   const [reason, setReason] = useState('')
+  const [payments, setPayments] = useState(() =>
+    salePayments(sale).map((payment, key) => ({ ...payment, key, amount: String(payment.amount) })),
+  )
+  const [nextPaymentKey, setNextPaymentKey] = useState(payments.length)
+  const originalPayments = salePayments(sale)
+  const paymentTotal = payments.reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0) / 100
+  const paymentsDirty = payments.length !== originalPayments.length || payments.some(
+    (row) => !originalPayments.some((original) => original.method === row.method && Number(original.amount) === Number(row.amount)),
+  )
   const [formError, setFormError] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [preview, setPreview] = useState<SaleModification | null>(null)
@@ -325,7 +336,7 @@ function BillEditor({
     [lines],
   )
 
-  const dirty = useMemo(() => {
+  const linesDirty = useMemo(() => {
     if (lines.length !== sale.items.length) return true
     return lines.some(
       (line) =>
@@ -337,7 +348,18 @@ function BillEditor({
     )
   }, [lines, sale.items])
 
-  const difference = Math.round((totals.grand - Number(sale.grandTotal)) * 100) / 100
+  const dirty = linesDirty || paymentsDirty
+  const revisedTotal = linesDirty ? totals.grand : Number(sale.grandTotal)
+  const difference = Math.round((revisedTotal - Number(sale.grandTotal)) * 100) / 100
+  const updatePayment = (key: number, patch: { method?: PaymentMethod; amount?: string }) => {
+    setPayments((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row))
+  }
+  const addPayment = () => {
+    const method = collectionMethods.find((candidate) => !payments.some((row) => row.method === candidate))
+    if (!method) return
+    setPayments([...payments, { key: nextPaymentKey, method, amount: '' }])
+    setNextPaymentKey(nextPaymentKey + 1)
+  }
 
   const updateLine = (key: number, patch: Partial<EditLine>) => {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
@@ -360,6 +382,8 @@ function BillEditor({
 
   const resetLines = () => {
     setLines(sale.items.map(toEditLine))
+    setPayments(originalPayments.map((payment, key) => ({ ...payment, key, amount: String(payment.amount) })))
+    setNextPaymentKey(originalPayments.length)
     setReason('')
     setFormError(null)
   }
@@ -381,13 +405,23 @@ function BillEditor({
         return 'Discount cannot exceed the line amount'
       }
     }
-    if (!dirty) return 'Change a quantity, rate, item or discount before saving'
+    if (paymentsDirty) {
+      if (payments.some((row) => !/^\d+(?:\.\d{1,2})?$/.test(row.amount) || Number(row.amount) <= 0)) {
+        return 'Enter a positive payment amount with up to two decimal places on every row'
+      }
+      if (new Set(payments.map((row) => row.method)).size !== payments.length) return 'Use each payment method once'
+      if (Math.round(paymentTotal * 100) > Math.round(revisedTotal * 100)) {
+        return 'Total payments cannot exceed the revised bill total'
+      }
+    }
+    if (!dirty) return 'Change an item, discount or payment before saving'
     return null
   }
 
   const buildRequest = () => ({
     reason: reason.trim() || undefined,
     baseModificationCount: sale.modificationCount,
+    payments: paymentsDirty ? payments.map(({ method, amount }) => ({ method, amount: Number(amount) })) : undefined,
     items: lines.map((line) => ({
       itemId: Number(line.itemId),
       quantity: toNumber(line.quantity),
@@ -433,6 +467,7 @@ function BillEditor({
   }
 
   const confirm = async () => {
+    if (saving) return
     setSaving(true)
     setFormError(null)
     try {
@@ -682,6 +717,12 @@ function BillEditor({
                         </div>
                         <span className="text-[11px] text-slate-400">{formatDateTime(entry.modifiedAt)}</span>
                       </div>
+                      {entry.paymentsBefore && entry.paymentsAfter && (
+                        <p className="mt-1 text-xs text-slate-600">
+                          Payment: {paymentBreakdown(entry.paymentsBefore)} → {paymentBreakdown(entry.paymentsAfter)}
+                          {entry.modifiedBy != null ? ` · User #${entry.modifiedBy}` : ''}
+                        </p>
+                      )}
                       <p className="mt-1 text-xs text-slate-600">
                         {money(entry.originalTotal)} → <strong>{money(entry.modifiedTotal)}</strong>
                         <span className="text-slate-400">
@@ -796,7 +837,7 @@ function BillEditor({
             </div>
             <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
               <span>Modified total</span>
-              <span>{money(totals.grand)}</span>
+              <span>{money(revisedTotal)}</span>
             </div>
           </div>
 
@@ -807,7 +848,7 @@ function BillEditor({
             </div>
             <div className="flex justify-between text-slate-500">
               <span>Modified total</span>
-              <span className="font-semibold text-slate-700">{money(totals.grand)}</span>
+              <span className="font-semibold text-slate-700">{money(revisedTotal)}</span>
             </div>
             <div
               className={`mt-1 flex justify-between border-t border-slate-200 pt-1 font-bold ${
@@ -822,6 +863,39 @@ function BillEditor({
             </div>
           </div>
 
+          <fieldset disabled={!editable || saving} className="space-y-3 rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-sm font-semibold">Payments</legend>
+            <p className="text-xs text-slate-600">Saved payment: {paymentBreakdown(originalPayments)}</p>
+            {payments.map((row) => (
+              <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+                <Field label="Method">
+                  <Select aria-label="Payment method" value={row.method} onChange={(event) => updatePayment(row.key, { method: event.target.value as PaymentMethod })}>
+                    {row.method === 'CREDIT' && <option value="CREDIT">Legacy credit</option>}
+                    {collectionMethods.map((method) => (
+                      <option key={method} value={method} disabled={payments.some((other) => other.key !== row.key && other.method === method)}>
+                        {paymentLabels[method]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Amount">
+                  <Input aria-label="Payment amount" type="number" min="0.01" step="0.01" value={row.amount}
+                    onChange={(event) => updatePayment(row.key, { amount: event.target.value })} />
+                </Field>
+                <Button variant="outline" aria-label="Remove payment" onClick={() => setPayments(payments.filter((payment) => payment.key !== row.key))}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+            <Button variant="outline" onClick={addPayment} disabled={collectionMethods.every((method) => payments.some((row) => row.method === method))}>
+              Add payment
+            </Button>
+            <dl className="grid grid-cols-2 gap-1 text-sm">
+              <dt>Bill total</dt><dd className="text-right">{money(revisedTotal)}</dd>
+              <dt>Total payment</dt><dd className="text-right">{money(paymentTotal)}</dd>
+              <dt>Remaining</dt><dd className="text-right">{money(Math.max(0, revisedTotal - paymentTotal))}</dd>
+            </dl>
+          </fieldset>
           <div className="flex flex-col gap-2">
             <Button
               className="w-full"
@@ -931,6 +1005,11 @@ function BillEditor({
               </div>
             </div>
 
+            {preview.paymentsAfter && (
+              <p className="text-sm text-slate-700">
+                Confirm recorded payment: <strong>{paymentBreakdown(preview.paymentsAfter)}</strong>
+              </p>
+            )}
             {Number(preview.additionalPayable) > 0 && (
               <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
                 Additional amount payable by the customer: <strong>{money(preview.additionalPayable)}</strong>

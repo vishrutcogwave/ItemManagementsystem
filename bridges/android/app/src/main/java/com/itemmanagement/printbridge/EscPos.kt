@@ -50,6 +50,20 @@ object EscPos {
         return out.toByteArray()
     }
 
+    fun buildRaster(width: Int, height: Int, bits: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(ESC, '@'.code.toByte(), ESC, 'a'.code.toByte(), 0))
+        val rowBytes = width / 8
+        for (row in 0 until height step 128) {
+            val stripeHeight = minOf(128, height - row)
+            out.write(byteArrayOf(GS, 'v'.code.toByte(), '0'.code.toByte(), 0, rowBytes.toByte(), 0,
+                stripeHeight.toByte(), 0))
+            out.write(bits, row * rowBytes, stripeHeight * rowBytes)
+        }
+        out.write(byteArrayOf(10, 10, 10, GS, 'V'.code.toByte(), 66, 3))
+        return out.toByteArray()
+    }
+
     fun testSlip(printerName: String, paperWidth: String): ByteArray {
         val width = columns(paperWidth)
         val stamp = SimpleDateFormat("dd MMM yyyy HH:mm:ss", Locale.US).format(Date())

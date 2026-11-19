@@ -10,7 +10,7 @@ import {
   buildLabelSheetHtml,
   downloadLabelPng,
 } from '../../lib/barcode'
-import { printHtml } from '../../lib/export'
+import { printDocument, printHtml } from '../../lib/export'
 import { money } from '../../lib/format'
 import { useAuthStore } from '../../store/auth'
 import { notify, notifyError } from '../../store/ui'
@@ -33,8 +33,21 @@ export function BarcodeLabelDialog({ item, onClose, onUpdated }: BarcodeLabelDia
 
   const labelCount = Math.min(Math.max(Math.trunc(Number(copies) || 1), 1), 100)
 
+  const [twoAcross, setTwoAcross] = useState(false)
+  const [dimensions, setDimensions] = useState({ width: '50', height: '30', gap: '2', left: '0', total: '102' })
+  const roll = {
+    width: Number(dimensions.width), height: Number(dimensions.height), gap: Number(dimensions.gap),
+    left: Number(dimensions.left), total: Number(dimensions.total),
+  }
+  const rollFits = Object.values(roll).every((value) => Number.isFinite(value) && value >= 0) &&
+    roll.width >= 20 && roll.height >= 15 && roll.left + 2 * roll.width + roll.gap <= roll.total + 0.000001
+
   const printLabels = () => {
     if (!item) return
+    if (twoAcross) {
+      if (rollFits) printDocument(buildLabelSheetHtml(item, labelCount, roll))
+      return
+    }
     printHtml(buildLabelSheetHtml(item, labelCount), `Barcode labels ${item.itemCode}`)
   }
 
@@ -164,6 +177,36 @@ export function BarcodeLabelDialog({ item, onClose, onUpdated }: BarcodeLabelDia
               </Field>
             </div>
 
+            <Field label="Label roll layout">
+              <Select value={twoAcross ? 'two' : 'standard'} onChange={(event) => setTwoAcross(event.target.value === 'two')}>
+                <option value="standard">Standard</option>
+                <option value="two">Two stickers across</option>
+              </Select>
+            </Field>
+
+            {twoAcross && (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    ['width', 'Sticker width'], ['height', 'Sticker height'], ['gap', 'Gap between stickers'],
+                    ['left', 'Left edge margin'], ['total', 'Full roll width'],
+                  ] as const).map(([key, label]) => (
+                    <Field key={key} label={`${label} (mm)`}>
+                      <Input type="number" min={0} step="any" value={dimensions[key]}
+                        onChange={(event) => setDimensions({ ...dimensions, [key]: event.target.value })} />
+                    </Field>
+                  ))}
+                </div>
+                {!rollFits && <p role="alert" className="text-xs text-rose-700">
+                  Use a sticker size of at least 20 × 15 mm and make sure both stickers, the gap and the margin fit inside the roll width.
+                </p>}
+                <p className="text-xs text-slate-600">
+                  In the printer driver, set paper size to the full roll width × one sticker height.
+                  Use gap-sensing media, 100% scale and one copy. Turn off headers and footers.
+                </p>
+              </div>
+            )}
+
             {canManage && (
               <Button
                 variant="outline"
@@ -187,7 +230,7 @@ export function BarcodeLabelDialog({ item, onClose, onUpdated }: BarcodeLabelDia
               >
                 Download PNG
               </Button>
-              <Button className="justify-center" icon={<Printer className="h-4 w-4" />} onClick={printLabels}>
+              <Button className="justify-center" icon={<Printer className="h-4 w-4" />} disabled={twoAcross && !rollFits} onClick={printLabels}>
                 Print {labelCount > 1 ? `${labelCount} labels` : 'label'}
               </Button>
             </div>
@@ -202,11 +245,11 @@ export function BarcodeLabelDialog({ item, onClose, onUpdated }: BarcodeLabelDia
               Print calibration test page
             </Button>
 
-            <p className="text-center text-[11px] leading-relaxed text-slate-400">
+            {!twoAcross && <p className="text-center text-[11px] leading-relaxed text-slate-400">
               Labels are 50 × 30 mm. In the print dialog set scale to 100 % (“Actual size”), disable “Fit to page”,
               and choose the label paper size. Run the calibration page first and verify the printed ruler measures
               50 mm. Test the first printed label with your scanner.
-            </p>
+            </p>}
           </div>
         )}
       </Modal>

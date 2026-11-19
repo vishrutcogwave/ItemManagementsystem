@@ -18,6 +18,7 @@ import com.itemmanagement.entity.Store;
 import com.itemmanagement.entity.TaxMaster;
 import com.itemmanagement.entity.enums.ModificationChangeType;
 import com.itemmanagement.entity.enums.PaymentMethod;
+import com.itemmanagement.dto.transaction.SalePayment;
 import com.itemmanagement.entity.enums.SaleStatus;
 import com.itemmanagement.entity.enums.StoreStatus;
 import com.itemmanagement.entity.enums.TransactionType;
@@ -48,11 +49,13 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -207,12 +210,25 @@ public class SaleService {
         if (grand.compareTo(BigDecimal.ZERO) < 0) {
             throw ApiException.badRequest("Total discount cannot exceed the sale amount");
         }
-        PaymentMethod method = request.paymentMethod() == null ? PaymentMethod.CASH : request.paymentMethod();
-        BigDecimal paid = request.paidAmount() == null
-                ? (method == PaymentMethod.CREDIT ? BigDecimal.ZERO : grand)
-                : request.paidAmount().setScale(2, RoundingMode.HALF_UP);
-        if (paid.compareTo(grand) > 0) {
-            throw ApiException.badRequest("Paid amount cannot exceed the grand total");
+        PaymentMethod method;
+        BigDecimal paid;
+        List<SalePayment> payments;
+        if (request.payments() != null) {
+            if (request.paymentMethod() != null || request.paidAmount() != null) {
+                throw ApiException.badRequest("Submit payment rows or a single payment");
+            }
+            payments = normalizePayments(request.payments(), List.of());
+            paid = paymentTotal(payments, grand);
+            method = payments.isEmpty() ? PaymentMethod.CREDIT : payments.get(0).method();
+        } else {
+            method = request.paymentMethod() == null ? PaymentMethod.CASH : request.paymentMethod();
+            paid = request.paidAmount() == null
+                    ? (method == PaymentMethod.CREDIT ? BigDecimal.ZERO : grand)
+                    : request.paidAmount().setScale(2, RoundingMode.HALF_UP);
+            if (paid.compareTo(grand) > 0) {
+                throw ApiException.badRequest("Paid amount cannot exceed the grand total");
+            }
+            payments = paymentRows(method, paid);
         }
         Sale sale = saleRepository.save(Sale.builder()
                 .storeId(storeId)
@@ -232,6 +248,7 @@ public class SaleService {
                 .grandTotal(grand)
                 .paidAmount(paid)
                 .balanceAmount(grand.subtract(paid))
+                .payments(payments)
                 .paymentMethod(method)
                 .status(SaleStatus.COMPLETED)
                 .createdBy(TenantContext.userId())
@@ -280,17 +297,19 @@ public class SaleService {
         }
         BillContext context = billContext(sale, storeId);
         Plan plan = plan(sale, request, context);
-        if (plan.modification().getItemsAdded() == 0 && plan.modification().getItemsRemoved() == 0
+        if (plan.modification().getPaymentsAfter() == null && plan.modification().getItemsAdded() == 0 && plan.modification().getItemsRemoved() == 0
                 && plan.diffItems().stream()
                         .noneMatch(item -> item.getChangeType() == ModificationChangeType.UPDATED)) {
             throw ApiException.badRequest(
-                    "This bill already matches your edits. Change a quantity, rate, item or discount before saving.");
+                    "This bill already matches your edits. Change an item, discount or payment before saving.");
         }
 
         Map<Long, BranchInventory> locked = lockStock(storeId, sale, context.items(), plan.stockDelta());
         String number = numberGenerator.nextSaleModification();
         applyStock(storeId, sale, context.items(), plan.stockDelta(), locked, number);
-        writeDetails(storeId, sale, plan, locked);
+        if (!plan.lines().isEmpty()) {
+            writeDetails(storeId, sale, plan, locked);
+        }
 
         SaleModification modification = plan.modification();
         modification.setModificationNumber(number);
@@ -308,6 +327,11 @@ public class SaleService {
         sale.setIgstAmount(plan.totals().igst());
         sale.setTax(plan.totals().tax());
         sale.setGrandTotal(plan.totals().grand());
+        if (modification.getPaymentsAfter() != null) {
+            List<SalePayment> payments = modification.getPaymentsAfter();
+            sale.setPayments(payments);
+            sale.setPaymentMethod(payments.isEmpty() ? PaymentMethod.CREDIT : payments.get(0).method());
+        }
         sale.setPaidAmount(plan.paidAfter());
         sale.setBalanceAmount(plan.totals().grand().subtract(plan.paidAfter()));
         sale.setModificationCount(previousCount + 1);
@@ -317,6 +341,7 @@ public class SaleService {
                 "Modified sale " + sale.getSalesNumber() + " (" + number + ") from "
                         + plan.modification().getOriginalTotal() + " to "
                         + plan.modification().getModifiedTotal()
+                        + (modification.getPaymentsAfter() == null ? "" : " (payment breakdown updated)")
                         + (modification.getReason() == null ? "" : ": " + modification.getReason()));
 
         return modificationResponse(modification, plan.diffItems(),
@@ -414,6 +439,20 @@ public class SaleService {
     }
 
     private Plan plan(Sale sale, SaleModificationRequest request, BillContext context) {
+        if (request.payments() != null && sameLines(request.items(), context.details())) {
+            BillTotals totals = new BillTotals(sale.getSubtotal(), sale.getDiscount(), sale.getTaxableAmount(),
+                    sale.getCgstAmount(), sale.getSgstAmount(), sale.getIgstAmount(), sale.getTax(), sale.getGrandTotal());
+            BigDecimal quantity = context.details().stream().map(SalesDetail::getBaseQuantity)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            SaleModification modification = SaleModification.builder().storeId(sale.getStoreId())
+                    .saleId(sale.getId()).reason(blankToNull(request.reason()))
+                    .originalTotal(totals.grand()).modifiedTotal(totals.grand()).differenceAmount(BigDecimal.ZERO)
+                    .originalQuantity(quantity).modifiedQuantity(quantity)
+                    .quantityIncreased(BigDecimal.ZERO).quantityDecreased(BigDecimal.ZERO).build();
+            BigDecimal paidAfter = updatePaymentPlan(sale, request.payments(), totals.grand(), modification);
+            return new Plan(modification, List.of(), List.of(), List.of(), Map.of(), totals, paidAfter);
+        }
+
         boolean inclusive = context.store().isTaxInclusive();
         boolean interState = GstCalculator.isInterState(context.branch().getState(), sale.getCustomerState());
         Map<Long, SalesDetail> existing = new LinkedHashMap<>();
@@ -538,12 +577,6 @@ public class SaleService {
 
         BigDecimal grand = taxable.add(tax).setScale(2, RoundingMode.HALF_UP);
         BigDecimal originalTotal = sale.getGrandTotal();
-        BigDecimal paid = sale.getPaidAmount();
-        BigDecimal paidAfter = paid.min(grand);
-        BigDecimal previousBalance = sale.getBalanceAmount();
-        BigDecimal newBalance = grand.subtract(paidAfter);
-        BigDecimal additionalPayable = newBalance.subtract(previousBalance).max(BigDecimal.ZERO);
-        BigDecimal refundDue = paid.subtract(grand).max(BigDecimal.ZERO);
 
         SaleModification modification = SaleModification.builder()
                 .storeId(sale.getStoreId())
@@ -558,15 +591,93 @@ public class SaleService {
                 .quantityDecreased(decreased)
                 .itemsAdded(added)
                 .itemsRemoved(removed)
-                .additionalPayable(additionalPayable)
-                .refundDue(refundDue)
                 .build();
+        BigDecimal paidAfter = updatePaymentPlan(sale, request.payments(), grand, modification);
 
         return new Plan(modification, diffs, lines, removedDetails, stockDelta,
                 new BillTotals(subtotal.setScale(2, RoundingMode.HALF_UP), discount.setScale(2, RoundingMode.HALF_UP),
                         taxable.setScale(2, RoundingMode.HALF_UP), cgst.setScale(2, RoundingMode.HALF_UP),
                         sgst.setScale(2, RoundingMode.HALF_UP), igst.setScale(2, RoundingMode.HALF_UP),
                         tax.setScale(2, RoundingMode.HALF_UP), grand), paidAfter);
+    }
+
+    private boolean sameLines(List<SaleModificationRequest.Line> requested, List<SalesDetail> existing) {
+        if (requested.size() != existing.size()
+                || requested.stream().map(SaleModificationRequest.Line::itemId).distinct().count() != existing.size()) {
+            return false;
+        }
+        Map<Long, SalesDetail> byItem = existing.stream()
+                .collect(Collectors.toMap(SalesDetail::getItemId, detail -> detail));
+        return requested.stream().allMatch(line -> {
+            SalesDetail detail = byItem.get(line.itemId());
+            return detail != null && Objects.equals(line.unit(), detail.getUnit())
+                    && line.quantity().compareTo(detail.getQuantity()) == 0
+                    && line.sellingRate().compareTo(detail.getSellingRate()) == 0
+                    && money(line.discount()).compareTo(detail.getDiscount()) == 0;
+        });
+    }
+
+    private BigDecimal updatePaymentPlan(Sale sale, List<SalePayment> requested, BigDecimal total,
+                                         SaleModification modification) {
+        List<SalePayment> before = paymentsFor(sale);
+        List<SalePayment> after = new ArrayList<>();
+        BigDecimal paidAfter = BigDecimal.ZERO;
+        if (requested == null) {
+            if (before.size() > 1 && sale.getPaidAmount().compareTo(total) > 0) {
+                throw ApiException.badRequest("Adjust the payment rows to match the lower bill total");
+            }
+            BigDecimal remaining = sale.getPaidAmount().min(total);
+            for (SalePayment payment : before) {
+                BigDecimal amount = payment.amount().min(remaining);
+                if (amount.signum() > 0) {
+                    after.add(new SalePayment(payment.method(), amount));
+                    remaining = remaining.subtract(amount);
+                }
+            }
+            paidAfter = sale.getPaidAmount().min(total);
+        } else {
+            after = normalizePayments(requested, before);
+            paidAfter = paymentTotal(after, total);
+        }
+        if (!new HashSet<>(before).equals(new HashSet<>(after))) {
+            modification.setPaymentsBefore(before);
+            modification.setPaymentsAfter(after);
+        }
+        modification.setAdditionalPayable(total.subtract(paidAfter).subtract(sale.getBalanceAmount()).max(BigDecimal.ZERO));
+        modification.setRefundDue(sale.getPaidAmount().subtract(total).max(BigDecimal.ZERO));
+        return paidAfter;
+    }
+
+    private List<SalePayment> normalizePayments(List<SalePayment> requested, List<SalePayment> before) {
+        List<SalePayment> after = new ArrayList<>();
+        Set<PaymentMethod> methods = EnumSet.noneOf(PaymentMethod.class);
+        for (SalePayment payment : requested) {
+            boolean retainedLegacyCredit = payment.method() == PaymentMethod.CREDIT
+                    && before.stream().anyMatch(old -> old.method() == PaymentMethod.CREDIT
+                            && old.amount().compareTo(payment.amount()) == 0);
+            if ((payment.method() == PaymentMethod.CREDIT && !retainedLegacyCredit) || !methods.add(payment.method())) {
+                throw ApiException.badRequest("Use each collection method once. Credit is the unpaid balance.");
+            }
+            BigDecimal amount = payment.amount().setScale(2, RoundingMode.UNNECESSARY);
+            after.add(new SalePayment(payment.method(), amount));
+        }
+        return after;
+    }
+
+    private BigDecimal paymentTotal(List<SalePayment> payments, BigDecimal billTotal) {
+        BigDecimal total = payments.stream().map(SalePayment::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (total.compareTo(billTotal) > 0) {
+            throw ApiException.badRequest("Total payments cannot exceed the bill total");
+        }
+        return total;
+    }
+
+    private List<SalePayment> paymentsFor(Sale sale) {
+        return sale.getPayments() == null ? paymentRows(sale.getPaymentMethod(), sale.getPaidAmount()) : sale.getPayments();
+    }
+
+    private List<SalePayment> paymentRows(PaymentMethod method, BigDecimal paid) {
+        return paid.signum() > 0 ? List.of(new SalePayment(method, paid.setScale(2))) : List.of();
     }
 
     private SaleModificationItem diff(Long storeId, Item item, String unit, ModificationChangeType changeType,
@@ -693,7 +804,8 @@ public class SaleService {
                 modification.getRefundDue(), modification.getOriginalQuantity(),
                 modification.getModifiedQuantity(), modification.getQuantityIncreased(),
                 modification.getQuantityDecreased(), modification.getItemsAdded(),
-                modification.getItemsRemoved(), updated, lines, sale);
+                modification.getItemsRemoved(), updated, lines, modification.getModifiedBy(),
+                modification.getPaymentsBefore(), modification.getPaymentsAfter(), sale);
     }
 
     private SaleCancellationResponse cancellationResponse(SaleCancellation cancellation, Sale sale) {
@@ -727,7 +839,7 @@ public class SaleService {
                 sale.getCustomerName(), sale.getCustomerMobile(), sale.getCustomerState(),
                 sale.getSubtotal(), sale.getDiscount(), sale.getTaxableAmount(), sale.getCgstAmount(),
                 sale.getSgstAmount(), sale.getIgstAmount(), sale.getTax(), sale.getGrandTotal(),
-                sale.getPaidAmount(), sale.getBalanceAmount(), sale.getPaymentMethod().name(),
+                sale.getPaidAmount(), sale.getBalanceAmount(), sale.getPaymentMethod().name(), paymentsFor(sale),
                 sale.getStatus().name(), sale.getModificationCount(), sale.getCancelledAt(),
                 sale.getCancellationReason(), sale.getCreatedAt(), lines);
     }

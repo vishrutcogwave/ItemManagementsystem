@@ -25,7 +25,8 @@ public record SaleRequest(
         PaymentMethod paymentMethod,
         @DecimalMin(value = "0", message = "Paid amount cannot be negative") BigDecimal paidAmount,
         Boolean pos,
-        @NotEmpty(message = "Add at least one item") @Valid List<Line> items
+        @NotEmpty(message = "Add at least one item") @Valid List<Line> items,
+        @Size(max = 4) List<@NotNull @Valid SalePayment> payments
 ) {
     public record Line(
             @NotNull(message = "Item is required") Long itemId,

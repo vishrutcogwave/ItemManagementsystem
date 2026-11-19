@@ -1,13 +1,17 @@
 package com.itemmanagement.entity;
 
+import com.itemmanagement.dto.transaction.SalePayment;
 import com.itemmanagement.entity.enums.PaymentMethod;
 import com.itemmanagement.entity.enums.SaleStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 @Entity
 @Table(name = "sales")
@@ -78,6 +82,9 @@ public class Sale {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PaymentMethod paymentMethod;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<SalePayment> payments;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

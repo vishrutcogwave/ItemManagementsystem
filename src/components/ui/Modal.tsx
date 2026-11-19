@@ -1,5 +1,5 @@
 import { AlertTriangle, X } from 'lucide-react'
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Button } from './Button'
 
 interface ModalProps {
@@ -31,6 +31,8 @@ export function Modal({
   size = 'md',
   bodyClassName = '',
 }: ModalProps) {
+  const titleId = useId()
+  const descriptionId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   const triggerRef = useRef<HTMLElement | null>(null)
@@ -102,14 +104,16 @@ export function Modal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={trapTab}
         className={`relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-pop outline-none sm:rounded-2xl ${sizes[size]}`}
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
           <div>
-            <h2 className="text-base font-bold text-slate-900">{title}</h2>
-            {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
+            <h2 id={titleId} className="text-base font-bold text-slate-900">{title}</h2>
+            {description && <p id={descriptionId} className="mt-0.5 text-xs text-slate-500">{description}</p>}
           </div>
           <button
             onClick={onClose}

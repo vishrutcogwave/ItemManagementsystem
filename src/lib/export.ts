@@ -40,6 +40,11 @@ interface PdfOptions<T> {
   summary?: string[]
 }
 
+function pdfText(value: string | number): string {
+  // jsPDF's standard Helvetica does not include the rupee glyph.
+  return String(value).replaceAll('₹', 'INR ')
+}
+
 export async function exportPdf<T>({
   title,
   filename,
@@ -58,12 +63,12 @@ export async function exportPdf<T>({
 
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text(title, 40, 44)
+  doc.text(pdfText(title), 40, 44)
 
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.setTextColor(110)
-  if (subtitle) doc.text(subtitle, 40, 60)
+  if (subtitle) doc.text(pdfText(subtitle), 40, 60)
   const stamp = `Generated ${new Date().toLocaleString('en-IN')}`
   doc.text(stamp, pageWidth - 40, 60, { align: 'right' })
 
@@ -71,14 +76,14 @@ export async function exportPdf<T>({
   if (summary.length > 0) {
     doc.setTextColor(60)
     doc.setFontSize(10)
-    doc.text(summary.join('    |    '), 40, startY)
+    doc.text(pdfText(summary.join('    |    ')), 40, startY)
     startY += 16
   }
 
   autoTable(doc, {
     startY,
-    head: [columns.map((column) => column.header)],
-    body: rows.map((row) => columns.map((column) => String(column.value(row)))),
+    head: [columns.map((column) => pdfText(column.header))],
+    body: rows.map((row) => columns.map((column) => pdfText(column.value(row)))),
     styles: { fontSize: 8, cellPadding: 5, textColor: [45, 55, 72] },
     headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [250, 250, 252] },

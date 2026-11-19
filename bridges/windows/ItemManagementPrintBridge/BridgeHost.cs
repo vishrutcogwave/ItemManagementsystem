@@ -13,6 +13,7 @@ namespace ItemManagement.PrintBridge;
 
 public sealed class BridgeHost
 {
+    private const int MaxPrintBodyBytes = 4 * 1024 * 1024;
     private readonly PrintService _printer = new();
     private readonly ConcurrentDictionary<string, DateTime> _printed = new();
     private readonly object _dispatchGate = new();
@@ -53,7 +54,7 @@ public sealed class BridgeHost
         {
             options.AddServerHeader = false;
             options.Listen(IPAddress.Loopback, Config.Port);
-            options.Limits.MaxRequestBodySize = 512 * 1024;
+            options.Limits.MaxRequestBodySize = MaxPrintBodyBytes;
         });
         builder.Services.Configure<JsonOptions>(options =>
         {
@@ -117,6 +118,7 @@ public sealed class BridgeHost
                 deviceName = Environment.MachineName,
                 defaultPrinter = printer,
                 paired = true,
+                driverInvoices = true,
                 mode = Config.PrintMode,
                 lastResult = LastResult,
             });
@@ -144,7 +146,7 @@ public sealed class BridgeHost
             PrintJobPayload? payload;
             try
             {
-                using var document = await ReadJsonAsync(context);
+                using var document = await ReadJsonAsync(context, MaxPrintBodyBytes);
                 if (document is null)
                 {
                     return Results.Json(new { success = false, message = "Invalid request body." }, statusCode: 400);
@@ -178,7 +180,12 @@ public sealed class BridgeHost
                     });
                 }
 
-                var result = _printer.PrintReceipt(payload.Document!.Lines, payload.PaperWidth, Config.PrintMode);
+                var document = payload.Document!;
+                var result = document.DriverInvoice is { } invoice
+                    ? _printer.PrintDriverInvoice(invoice)
+                    : document.Raster is { } raster
+                        ? _printer.PrintInvoice(raster)
+                        : _printer.PrintReceipt(document.Lines, payload.PaperWidth, Config.PrintMode);
                 SetLastResult(result.Message);
                 if (result.Success)
                 {
@@ -238,11 +245,11 @@ public sealed class BridgeHost
         }
     }
 
-    private static async Task<JsonDocument?> ReadJsonAsync(HttpContext context)
+    private static async Task<JsonDocument?> ReadJsonAsync(HttpContext context, int maxBytes = 512 * 1024)
     {
         try
         {
-            if (context.Request.ContentLength > 512 * 1024) return null;
+            if (context.Request.ContentLength > maxBytes) return null;
             using var reader = new StreamReader(context.Request.Body, Encoding.UTF8);
             var body = await reader.ReadToEndAsync(context.RequestAborted);
             if (string.IsNullOrWhiteSpace(body)) return JsonDocument.Parse("{}");

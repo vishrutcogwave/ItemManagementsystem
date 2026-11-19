@@ -2,6 +2,7 @@ package com.itemmanagement.printbridge
 
 import org.json.JSONArray
 import org.json.JSONObject
+import android.util.Base64
 import java.io.BufferedInputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -226,15 +227,32 @@ class LocalBridgeServer(
         val jobKey = payload.optString("jobKey")
         val paper = payload.optString("paperWidth")
         val document = payload.getJSONObject("document")
-        val lineArray = document.getJSONArray("lines")
-        val lines = (0 until lineArray.length()).map { index ->
-            val line = lineArray.getJSONObject(index)
-            ThermalLine(
-                text = line.optString("text"),
-                bold = line.optBoolean("bold"),
-                align = line.optString("align").takeIf { it.isNotBlank() },
-                doubleSize = line.optBoolean("doubleSize"),
-            )
+        val raster = document.optJSONObject("raster")
+        val data = if (raster != null) {
+            val width = if (paper == "MM58") 384 else 576
+            val height = raster.optInt("height")
+            if (raster.optInt("width") != width || height !in 1..5000) {
+                return errorJson("The thermal invoice image is invalid.")
+            }
+            val bits = try {
+                Base64.decode(raster.optString("bits"), Base64.DEFAULT)
+            } catch (_: IllegalArgumentException) {
+                return errorJson("The thermal invoice image is invalid.")
+            }
+            if (bits.size != width / 8 * height) return errorJson("The thermal invoice image is invalid.")
+            EscPos.buildRaster(width, height, bits)
+        } else {
+            val lineArray = document.getJSONArray("lines")
+            val lines = (0 until lineArray.length()).map { index ->
+                val line = lineArray.getJSONObject(index)
+                ThermalLine(
+                    text = line.optString("text"),
+                    bold = line.optBoolean("bold"),
+                    align = line.optString("align").takeIf { it.isNotBlank() },
+                    doubleSize = line.optBoolean("doubleSize"),
+                )
+            }
+            EscPos.build(lines, paper)
         }
 
         val printerJson = payload.getJSONObject("printer")
@@ -261,7 +279,7 @@ class LocalBridgeServer(
                     .toString()
             }
 
-            val error = PrinterClient.send(target, EscPos.build(lines, paper))
+            val error = PrinterClient.send(target, data)
             if (error != null) {
                 report("Print failed: $error")
                 return JSONObject()
@@ -307,6 +325,7 @@ class LocalBridgeServer(
         if (!document.optString("type").equals("SALE_RECEIPT", ignoreCase = true)) {
             return "Unsupported document type."
         }
+        if (document.optJSONObject("raster") != null) return null
         val lines = document.optJSONArray("lines") ?: return "The receipt has no lines."
         if (lines.length() == 0 || lines.length() > 300) return "The receipt line count is invalid."
         var total = 0

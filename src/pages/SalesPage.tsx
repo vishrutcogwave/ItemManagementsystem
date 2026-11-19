@@ -1,3 +1,4 @@
+import { paymentBreakdown, salePayments } from '../lib/salePayments'
 import { Ban, Eye, FilePenLine, FileText, Plus, Printer, ReceiptText, ShoppingCart } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -192,7 +193,7 @@ export function SalesPage() {
     },
     { key: 'branch', header: 'Branch', render: (row) => <Badge tone="slate">{row.branchName}</Badge> },
     { key: 'total', header: 'Total', align: 'right', render: (row) => <span className="font-semibold text-slate-800">{money(row.grandTotal)}</span> },
-    { key: 'payment', header: 'Payment', render: (row) => <Badge tone="blue">{row.paymentMethod}</Badge> },
+    { key: 'payment', header: 'Payment', render: (row) => <Badge tone="blue">{paymentBreakdown(salePayments(row))}</Badge> },
     {
       key: 'balance',
       header: 'Balance',
@@ -443,7 +444,7 @@ export function SalesPage() {
               <div className="rounded-lg bg-slate-50 px-3 py-2">
                 <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Payment</p>
                 <p className="mt-0.5 text-xs font-semibold text-slate-700">
-                  {detail.paymentMethod} · {money(detail.paidAmount)}
+                  {paymentBreakdown(salePayments(detail))}
                 </p>
               </div>
               <div className="rounded-lg bg-slate-50 px-3 py-2">

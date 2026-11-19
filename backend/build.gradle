@@ -1,6 +1,6 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.3.5'
+    id 'org.springframework.boot' version '3.5.9'
     id 'io.spring.dependency-management' version '1.1.6'
 }
 
@@ -35,6 +35,7 @@ repositories {
 ext {
     jjwtVersion = '0.12.6'
     embeddedPostgresVersion = '2.0.7'
+    set('commons-lang3.version', '3.20.0')
 }
 
 dependencies {
@@ -53,7 +54,7 @@ dependencies {
 
     implementation "io.zonky.test:embedded-postgres:${embeddedPostgresVersion}"
 
-    implementation 'org.apache.poi:poi-ooxml:5.3.0'
+    implementation 'org.apache.poi:poi-ooxml:5.5.1'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
@@ -68,6 +69,14 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // Bound the number of live embedded PostgreSQL servers in integration tests.
+    systemProperty 'spring.test.context.cache.maxSize', '4'
+    systemProperty 'server.shutdown', 'immediate'
+    systemProperty 'ims.test.repositoryDir', rootProject.projectDir.parentFile.absolutePath
+    doFirst {
+        // Each run gets fresh relative PostgreSQL paths, even if a prior run was interrupted.
+        workingDir java.nio.file.Files.createTempDirectory(temporaryDir.toPath(), 'ims-run-').toFile()
+    }
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'full'

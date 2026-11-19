@@ -35,7 +35,8 @@ public interface SaleRepository extends JpaRepository<Sale, Long> {
               and (:search is null or lower(s.salesNumber) like lower(concat('%', :search, '%'))
                    or lower(coalesce(s.customerName, '')) like lower(concat('%', :search, '%'))
                    or coalesce(s.customerMobile, '') like concat('%', :search, '%'))
-            order by s.createdAt desc
+            order by case when lower(s.salesNumber) = lower(:search) then 0 else 1 end,
+                     s.createdAt desc, s.id desc
             """)
     Page<Sale> search(@Param("storeId") Long storeId, @Param("branchId") Long branchId,
                       @Param("branchIds") Collection<Long> branchIds,

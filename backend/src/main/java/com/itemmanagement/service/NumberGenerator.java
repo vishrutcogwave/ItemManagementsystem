@@ -10,46 +10,47 @@ public class NumberGenerator {
     @PersistenceContext
     private EntityManager entityManager;
 
-    public String next(String sequence, String prefix) {
+    private String next(String sequence) {
         Number value = (Number) entityManager
-                .createNativeQuery("select nextval('" + sequence + "')")
+                .createNativeQuery("select nextval(cast(:sequence as regclass))")
+                .setParameter("sequence", sequence)
                 .getSingleResult();
-        return prefix + "-" + value.longValue();
+        return Long.toString(value.longValue());
     }
 
     public String nextPurchase() {
-        return next("purchase_number_seq", "PUR");
+        return next("purchase_document_seq");
     }
 
     public String nextSale() {
-        return next("sales_number_seq", "SAL");
+        return next("sale_document_seq");
     }
 
     public String nextTransfer() {
-        return next("transfer_number_seq", "TRF");
+        return next("transfer_document_seq");
     }
 
     public String nextAdjustment() {
-        return next("adjustment_number_seq", "ADJ");
+        return next("adjustment_document_seq");
     }
 
     public String nextItemCode() {
-        return next("item_code_seq", "ITM");
+        return "ITM-" + next("item_code_seq");
     }
 
     public String nextImportNumber() {
-        return next("item_import_number_seq", "IMP");
+        return next("item_import_document_seq");
     }
 
     public String nextSupplierPayment() {
-        return next("supplier_payment_number_seq", "SPAY");
+        return next("supplier_payment_document_seq");
     }
 
     public String nextSaleModification() {
-        return next("sale_modification_number_seq", "MOD");
+        return next("sale_modification_document_seq");
     }
 
     public String nextSaleCancellation() {
-        return next("sale_cancellation_number_seq", "SCN");
+        return next("sale_cancellation_document_seq");
     }
 }

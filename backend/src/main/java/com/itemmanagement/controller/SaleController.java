@@ -7,6 +7,7 @@ import com.itemmanagement.dto.transaction.SaleModificationResponse;
 import com.itemmanagement.dto.transaction.SaleRequest;
 import com.itemmanagement.dto.transaction.SaleResponse;
 import com.itemmanagement.entity.enums.SaleStatus;
+import com.itemmanagement.exception.ApiException;
 import com.itemmanagement.service.SaleService;
 import com.itemmanagement.util.PageResponse;
 import jakarta.validation.Valid;
@@ -47,6 +48,15 @@ public class SaleController {
     @PostMapping
     @PreAuthorize("hasAuthority('SALES_MANAGE')")
     public SaleResponse create(@Valid @RequestBody SaleRequest request) {
+        return saleService.create(request);
+    }
+
+    @PostMapping("/split")
+    @PreAuthorize("hasAuthority('SALES_MANAGE')")
+    public SaleResponse createSplit(@Valid @RequestBody SaleRequest request) {
+        if (request.payments() == null || request.payments().size() < 2) {
+            throw ApiException.badRequest("Split checkout requires at least two payment methods");
+        }
         return saleService.create(request);
     }
 

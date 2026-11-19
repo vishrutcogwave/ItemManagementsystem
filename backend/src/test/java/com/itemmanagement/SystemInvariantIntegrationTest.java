@@ -156,6 +156,7 @@ class SystemInvariantIntegrationTest {
 
         JsonNode draft = purchase(session, supplierId, item.id(), "10", "DRAFT");
         assertEquals("DRAFT", draft.get("status").asText());
+        assertTrue(draft.get("purchaseNumber").asText().matches("[1-9][0-9]*"));
         assertEquals(0, stockOf(session, item.code()).compareTo(BigDecimal.ZERO));
 
         long purchaseId = draft.get("id").asLong();
@@ -254,6 +255,22 @@ class SystemInvariantIntegrationTest {
     }
 
     @Test
+    void stockReportClosingQuantityIsScopedToTheSelectedEndDate() {
+        Session session = registerStore();
+        ItemRef item = createItem(session, createCategory(session, "Historical stock"), "HIST");
+        long supplierId = createSupplier(session, "HIST");
+        purchase(session, supplierId, item.id(), "3", "COMPLETED");
+        LocalDate today = LocalDate.now();
+        JsonNode historical = call(HttpMethod.GET, "/api/reports/stock?from=" + today.minusDays(2)
+                + "&to=" + today.minusDays(1), null, session.token(), HttpStatus.OK);
+        assertEquals(0, historical.get("totalCurrentStock").decimalValue().compareTo(BigDecimal.ZERO));
+        assertEquals(0, historical.at("/rows/0/openingStock").decimalValue().compareTo(BigDecimal.ZERO));
+        JsonNode current = call(HttpMethod.GET, "/api/reports/stock?from=" + today
+                + "&to=" + today, null, session.token(), HttpStatus.OK);
+        assertEquals(0, current.get("totalCurrentStock").decimalValue().compareTo(new BigDecimal("3")));
+    }
+
+    @Test
     void rejectsNegativeAdjustmentsAndDuplicateLines() {
         Session session = registerStore();
         long categoryId = createCategory(session, "Misc");
@@ -303,7 +320,9 @@ class SystemInvariantIntegrationTest {
         call(HttpMethod.POST, "/api/transfers/" + tooLargeId + "/dispatch", null, session.token(), HttpStatus.BAD_REQUEST);
         assertEquals(0, stockOf(session, item.code()).compareTo(new BigDecimal("3")));
 
-        long transferId = transfer(session, destination, item.id(), "2").get("id").asLong();
+        JsonNode createdTransfer = transfer(session, destination, item.id(), "2");
+        assertTrue(createdTransfer.get("transferNumber").asText().matches("[1-9][0-9]*"));
+        long transferId = createdTransfer.get("id").asLong();
         call(HttpMethod.POST, "/api/transfers/" + transferId + "/approve", null, session.token(), HttpStatus.OK);
         assertEquals(0, stockOf(session, item.code()).compareTo(new BigDecimal("3")));
         call(HttpMethod.POST, "/api/transfers/" + transferId + "/dispatch", null, session.token(), HttpStatus.OK);

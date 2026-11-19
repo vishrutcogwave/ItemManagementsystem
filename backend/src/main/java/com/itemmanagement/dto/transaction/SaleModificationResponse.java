@@ -22,6 +22,9 @@ public record SaleModificationResponse(
         int itemsRemoved,
         int itemsUpdated,
         List<LineDiff> lines,
+        Long modifiedBy,
+        List<SalePayment> paymentsBefore,
+        List<SalePayment> paymentsAfter,
         SaleResponse sale
 ) {
     public record LineDiff(

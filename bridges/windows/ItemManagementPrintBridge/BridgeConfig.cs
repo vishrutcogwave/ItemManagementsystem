@@ -17,15 +17,14 @@ public sealed class BridgeConfig
     public string Key { get; set; } = string.Empty;
     public string PrintMode { get; set; } = "auto";
     public List<string> AllowedOrigins { get; set; } = new()
-public List<string> AllowedOrigins { get; set; } = new()
-{
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:4173",
-    "http://127.0.0.1:4173",
-    "https://hiremathwebstudio.in",
-    "https://www.hiremathwebstudio.in"
-};
+    {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "https://hiremathwebstudio.in",
+        "https://www.hiremathwebstudio.in"
+    };
     public bool StartWithWindows { get; set; } = true;
 
     private static readonly JsonSerializerOptions JsonOptions = new()

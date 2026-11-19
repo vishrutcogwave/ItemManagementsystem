@@ -1,3 +1,4 @@
+import { PaymentSummaryReportView } from './reports/PaymentSummaryReportView'
 import { Building2, CalendarRange, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { Button, Card, Input, PageHeader, SearchInput, Select, Tabs } from '../components/ui'
@@ -23,6 +24,7 @@ import type { ReportFilters } from './reports/types'
 
 const TABS = [
   { key: 'sales', label: 'Sales' },
+  { key: 'payment-summary', label: 'Payment summary' },
   { key: 'purchases', label: 'Purchases' },
   { key: 'stock', label: 'Stock movement' },
   { key: 'profit', label: 'Profit' },
@@ -43,6 +45,7 @@ const NO_DATE_TABS = ['low-stock', 'supplier-outstanding']
 export function ReportsPage() {
   const { selectedBranchId, allBranches, branches } = useAuthStore()
   const [tab, setTab] = useState('sales')
+  const [paymentFilterReset, setPaymentFilterReset] = useState(0)
   const [from, setFrom] = useState(monthStart())
   const [to, setTo] = useState(today())
   const [categoryId, setCategoryId] = useState('')
@@ -61,6 +64,7 @@ export function ReportsPage() {
     [],
   )
 
+  const paymentSummary = tab === 'payment-summary'
   const showItems = ITEM_FILTER_TABS.includes(tab)
   const showSuppliers = SUPPLIER_FILTER_TABS.includes(tab)
   const showDates = !NO_DATE_TABS.includes(tab)
@@ -89,6 +93,7 @@ export function ReportsPage() {
     setItemId('')
     setSupplierId('')
     setSearch('')
+    setPaymentFilterReset((version) => version + 1)
   }
 
   return (
@@ -122,9 +127,9 @@ export function ReportsPage() {
                 />
               </div>
             )}
-            <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 truncate rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
+            {!paymentSummary && <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 truncate rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600">
               <Building2 className="h-3.5 w-3.5 shrink-0" /> {branchLabel}
-            </span>
+            </span>}
             <Button
               variant="ghost"
               size="sm"
@@ -166,17 +171,18 @@ export function ReportsPage() {
                 ))}
               </Select>
             )}
-            <SearchInput
+            {!paymentSummary && <SearchInput
               className="sm:min-w-40 sm:flex-1"
               placeholder={showSuppliers ? 'Search supplier, bill or reference…' : 'Search item or code…'}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-            />
+            />}
           </div>
           <Tabs tabs={TABS} value={tab} onChange={setTab} />
         </div>
       </Card>
 
+      {paymentSummary && <PaymentSummaryReportView key={paymentFilterReset} filters={filters} />}
       {tab === 'sales' && <SalesReportView filters={filters} />}
       {tab === 'purchases' && <PurchaseReportView filters={filters} />}
       {tab === 'stock' && <StockReportView filters={filters} />}

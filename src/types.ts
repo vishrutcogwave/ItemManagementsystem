@@ -1,7 +1,11 @@
 export type StoreStatus = 'ACTIVE' | 'INACTIVE'
 export type TaxType = 'GST' | 'EXEMPT'
 export type Unit = string
-export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'CREDIT'
+export type PaymentMethod = 'CASH' | 'UPI' | 'CARD' | 'BANK' | 'CREDIT'
+export interface SalePayment {
+  method: PaymentMethod
+  amount: number
+}
 export type SupplierPaymentMethod = 'CASH' | 'BANK' | 'UPI' | 'CARD'
 export type SettlementStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID'
 export type BarcodeFormat = 'CODE128' | 'EAN13'
@@ -721,6 +725,7 @@ export interface Sale {
   paidAmount: number
   balanceAmount: number
   paymentMethod: PaymentMethod
+  payments?: SalePayment[]
   status: SaleStatus
   modificationCount: number
   cancelledAt: string | null
@@ -765,6 +770,9 @@ export interface SaleModification {
   itemsRemoved: number
   itemsUpdated: number
   lines: SaleModificationLine[]
+  modifiedBy?: number
+  paymentsBefore?: SalePayment[]
+  paymentsAfter?: SalePayment[]
   sale: Sale
 }
 

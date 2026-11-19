@@ -49,6 +49,21 @@ internal static class EscPos
         return stream.ToArray();
     }
 
+    public static byte[] BuildRaster(InvoiceRaster raster)
+    {
+        using var stream = new MemoryStream();
+        stream.Write(new byte[] { Esc, (byte)'@', Esc, (byte)'a', 0 });
+        var rowBytes = raster.Width / 8;
+        for (var row = 0; row < raster.Height; row += 128)
+        {
+            var height = Math.Min(128, raster.Height - row);
+            stream.Write(new byte[] { Gs, (byte)'v', (byte)'0', 0, (byte)rowBytes, 0, (byte)height, 0 });
+            stream.Write(raster.Bits, row * rowBytes, height * rowBytes);
+        }
+        stream.Write(new byte[] { 10, 10, 10, Gs, (byte)'V', 66, 3 });
+        return stream.ToArray();
+    }
+
     public static byte[] TestSlip(string printerName, string paperWidth)
     {
         var columns = Columns(paperWidth);

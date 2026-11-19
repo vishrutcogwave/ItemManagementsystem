@@ -206,6 +206,7 @@ class ItemImportIntegrationTest {
         assertEquals("OPENING_STOCK", opening.get("transactionType").asText());
         assertEquals(0, opening.get("quantityIn").decimalValue().compareTo(new BigDecimal("40")));
         assertEquals("ITEM_IMPORT", opening.get("referenceType").asText());
+        assertTrue(result.get("importNumber").asText().matches("[1-9][0-9]*"));
         assertEquals(result.get("importNumber").asText(), opening.get("referenceNumber").asText());
 
         // Existing purchase and sales flows keep working with imported items.

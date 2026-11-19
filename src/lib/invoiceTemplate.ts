@@ -1,6 +1,7 @@
 import type { Sale, SaleLine } from '../types'
 import { amountInWords } from './amountInWords'
 import { formatDate, formatDateTime, money, qty as formatQty } from './format'
+import { paymentBreakdown, salePayments } from './salePayments'
 
 /**
  * Universal invoice engine: one builder that reproduces the classic bordered
@@ -18,6 +19,11 @@ export interface InvoicePaper {
   widthMm?: number
   /** Custom paper height in mm; omit/`auto` for continuous thermal rolls. */
   heightMm?: number | 'auto'
+}
+
+export interface InvoicePrintSettings {
+  template: InvoiceTemplateKind
+  paper: InvoicePaper
 }
 
 export interface InvoiceStoreInfo {
@@ -55,25 +61,50 @@ function escapeHtml(value: string | number | null | undefined): string {
     .replaceAll("'", '&#39;')
 }
 
+export function invoicePaperMm(paper: InvoicePaper): { widthMm: number; heightMm: number | 'auto' } {
+  switch (paper.kind) {
+    case 'A4':
+      return paper.orientation === 'landscape' ? { widthMm: 297, heightMm: 210 } : { widthMm: 210, heightMm: 297 }
+    case 'A5':
+      return paper.orientation === 'landscape' ? { widthMm: 210, heightMm: 148 } : { widthMm: 148, heightMm: 210 }
+    case 'MM80':
+      return { widthMm: 80, heightMm: 'auto' }
+    case 'MM58':
+      return { widthMm: 58, heightMm: 'auto' }
+    case 'CUSTOM':
+    default: {
+      const widthMm = Math.min(600, Math.max(40, Number(paper.widthMm) || 210))
+      const heightMm = paper.heightMm === 'auto' || paper.heightMm === undefined
+        ? 'auto'
+        : Math.min(1200, Math.max(40, Number(paper.heightMm)))
+      return { widthMm, heightMm }
+    }
+  }
+}
+
+export function invoicePaperMarginMm(paper: InvoicePaper): number {
+  return paper.kind === 'A4' ? 10 : paper.kind === 'A5' ? 6 : paper.kind === 'MM80' ? 3 : paper.kind === 'MM58' ? 2 : paper.widthMm && paper.widthMm <= 90 ? 2 : 5
+}
+
 function paperSpec(paper: InvoicePaper): PaperSpec {
   const orientation = paper.orientation === 'landscape' ? 'landscape' : 'portrait'
   switch (paper.kind) {
     case 'A5':
       return orientation === 'landscape'
-        ? spec('A5 landscape', 198, 9.5, false, { width: 1123, height: 794 })
-        : spec('A5 portrait', 136, 9.5, false, { width: 559, height: 794 })
+        ? spec('A5 landscape', 198, 13.333, false, { width: 1123, height: 794 })
+        : spec('A5 portrait', 136, 13.333, false, { width: 559, height: 794 })
     case 'MM80':
-      return spec('80mm auto', 74, 8, true, { width: 302, height: 1000 })
+      return spec('auto', 74, 12, true, { width: 302, height: 1000 })
     case 'MM58':
-      return spec('58mm auto', 54, 6.6, true, { width: 220, height: 1000 })
+      return spec('auto', 54, 12, true, { width: 220, height: 1000 })
     case 'CUSTOM': {
       const rawWidth = clamp(paper.widthMm ?? 210, 40, 600)
       const height = paper.heightMm === 'auto' || paper.heightMm === undefined
         ? 'auto'
         : clamp(paper.heightMm, 40, 1200)
       const margin = rawWidth <= 90 ? 2 : 5
-      const pageRule = `size ${rawWidth}mm ${height === 'auto' ? 'auto' : `${height}mm`}`
-      const fontPx = rawWidth >= 170 ? 11.5 : rawWidth >= 110 ? 9.5 : rawWidth >= 65 ? 8 : 6.6
+      const pageRule = height === 'auto' ? 'size: auto' : `size: ${rawWidth}mm ${height}mm`
+      const fontPx = rawWidth > 90 ? 13.333 : 12
       return {
         pageRule,
         contentMm: rawWidth - margin * 2,
@@ -88,8 +119,8 @@ function paperSpec(paper: InvoicePaper): PaperSpec {
     case 'A4':
     default:
       return orientation === 'landscape'
-        ? spec('A4 landscape', 190, 11.5, false, { width: 1123, height: 794 })
-        : spec('A4 portrait', 190, 11.5, false, { width: 794, height: 1123 })
+        ? spec('A4 landscape', 190, 14.667, false, { width: 1123, height: 794 })
+        : spec('A4 portrait', 190, 14.667, false, { width: 794, height: 1123 })
   }
 }
 
@@ -101,7 +132,7 @@ function spec(
   previewPx: { width: number; height: number },
 ): PaperSpec {
   return {
-    pageRule: `size ${sizeRule}`,
+    pageRule: `size: ${sizeRule}`,
     contentMm,
     fontPx,
     thermal,
@@ -121,6 +152,7 @@ const BILL_TYPE_BY_PAYMENT: Record<string, string> = {
   CASH: 'Cash Bill',
   UPI: 'UPI Bill',
   CARD: 'Card Bill',
+  BANK: 'Bank Bill',
   CREDIT: 'Credit Bill',
 }
 
@@ -289,6 +321,11 @@ const INVOICE_CSS = `
 
   @media print { body { padding: 0; } .words, .pay, .summary, .foot, .row2 { break-inside: avoid; } }
 
+  .doc.thermal { overflow-wrap: anywhere; }
+  .thermal table.items td, .thermal table.items th { padding-inline: 3px; }
+  .thermal table.items td.r { white-space: normal; }
+  .thermal .note { font-size: calc(var(--fs) * 0.9); }
+
   /* thermal reflow */
   .t-item { padding: 2px 0; }
   .t-name { font-weight: 700; }
@@ -317,7 +354,7 @@ function buildA5Layout(
   const billRows: Array<[string, string]> = [
     ['Bill No', escapeHtml(sale.salesNumber)],
     ['Bill Date', formatDate(sale.salesDate)],
-    ['Bill Type', escapeHtml(BILL_TYPE_BY_PAYMENT[sale.paymentMethod] ?? sale.paymentMethod)],
+    ['Bill Type', escapeHtml(salePayments(sale).length > 1 ? 'Split Payment' : BILL_TYPE_BY_PAYMENT[sale.paymentMethod] ?? sale.paymentMethod)],
     ['Location', escapeHtml(sale.branchName ?? '')],
   ]
   if (sale.createdAt) billRows.push(['Billed at', formatDateTime(sale.createdAt)])
@@ -380,7 +417,7 @@ function buildA5Layout(
       <span>${escapeHtml(amountInWords(payable))}</span>
     </div>
     <div class="pay">
-      <span><span class="label">Payment Mode :</span> ${escapeHtml(sale.paymentMethod)}</span>
+      <span><span class="label">Payment Mode :</span> ${escapeHtml(paymentBreakdown(salePayments(sale)))}</span>
       <span><span class="label">Paid :</span> ${money(paid)}</span>
       ${balance !== 0 ? `<span><span class="label">${balance < 0 ? 'Refund Due' : 'Outstanding Amount'} :</span> ${money(Math.abs(balance))}</span>` : ''}
       ${sale.modificationCount > 0 ? `<span><span class="label">Modified :</span> ${sale.modificationCount}&times;</span>` : ''}
@@ -421,7 +458,7 @@ function buildThermalLayout(
   const billRows: Array<[string, string]> = [
     ['Bill No', escapeHtml(sale.salesNumber)],
     ['Date', formatDate(sale.salesDate)],
-    ['Type', escapeHtml(BILL_TYPE_BY_PAYMENT[sale.paymentMethod] ?? sale.paymentMethod)],
+    ['Type', escapeHtml(salePayments(sale).length > 1 ? 'Split Payment' : BILL_TYPE_BY_PAYMENT[sale.paymentMethod] ?? sale.paymentMethod)],
     ['Location', escapeHtml(sale.branchName ?? '')],
   ]
   if (sale.customerName?.trim() || sale.customerMobile) {
@@ -463,7 +500,7 @@ function buildThermalLayout(
       <div style="font-weight:700">Amount in words</div>
       <div>${escapeHtml(amountInWords(payable))}</div>
       <div class="t-divider"></div>
-      <div>Payment Mode: ${escapeHtml(sale.paymentMethod)}</div>
+      <div>Payment Mode: ${escapeHtml(paymentBreakdown(salePayments(sale)))}</div>
       <div>Goods once sold will not be taken back.</div>
       <div style="text-align:center; margin-top:6px">
         <div style="font-weight:700">For ${escapeHtml(store.name)}</div>
@@ -483,8 +520,7 @@ export function buildInvoiceHtml(
   const paper = options.paper ?? DEFAULT_INVOICE_PAPER
   const template = options.template ?? 'RETAIL'
   const spec = paperSpec(paper)
-  const margin =
-    paper.kind === 'A4' ? 10 : paper.kind === 'A5' ? 6 : paper.kind === 'MM80' ? 3 : paper.kind === 'MM58' ? 2 : paper.widthMm && paper.widthMm <= 90 ? 2 : 5
+  const margin = invoicePaperMarginMm(paper)
 
   const body = spec.thermal
     ? buildThermalLayout(sale, store, spec)
@@ -506,7 +542,7 @@ ${INVOICE_CSS}
 </style>
 </head>
 <body>
-  <div class="doc" style="${widthCss}">
+  <div class="doc${spec.thermal ? ' thermal' : ''}" style="${widthCss}">
     ${body.replace(/^[\s\n]+/, '')}
   </div>
 </body>

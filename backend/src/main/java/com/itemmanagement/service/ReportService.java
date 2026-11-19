@@ -35,8 +35,10 @@ import com.itemmanagement.repository.SalesDetailRepository;
 import com.itemmanagement.repository.SupplierRepository;
 import com.itemmanagement.security.AuthUser;
 import com.itemmanagement.security.TenantContext;
+import com.itemmanagement.util.DocumentNumberOrder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -120,7 +122,7 @@ public class ReportService {
             }
         }
         rows.sort(Comparator.comparing(PurchaseReportResponse.Row::purchaseDate).reversed()
-                .thenComparing(PurchaseReportResponse.Row::purchaseNumber));
+                .thenComparing(PurchaseReportResponse.Row::purchaseNumber, DocumentNumberOrder.ASCENDING));
         return new PurchaseReportResponse(rows, quantity(totalQuantity), money(totalAmount), rows.size());
     }
 
@@ -164,7 +166,7 @@ public class ReportService {
             totalAmount = totalAmount.add(detail.getTotalAmount());
         }
         rows.sort(Comparator.comparing(SalesReportResponse.Row::salesDate).reversed()
-                .thenComparing(SalesReportResponse.Row::salesNumber));
+                .thenComparing(SalesReportResponse.Row::salesNumber, DocumentNumberOrder.ASCENDING));
         return new SalesReportResponse(rows, quantity(totalQuantity), money(totalAmount), rows.size());
     }
 
@@ -237,7 +239,7 @@ public class ReportService {
                 money(totalTax), invoicedSales.size()));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public StockReportResponse stockReport(LocalDate from, LocalDate to, Long branchId,
                                            Long categoryId, Long itemId, String search) {
         Scope scope = scope(branchId);
@@ -271,6 +273,10 @@ public class ReportService {
         }
         List<BranchInventory> inventories = inventoryRepository
                 .findByStoreIdAndBranchIdIn(scope.storeId(), scope.branchIds());
+        Map<String, BigDecimal> laterStockChanges = transactionRepository
+                .netMovementAfter(scope.storeId(), scope.branchIds(), toInstant).stream()
+                .collect(Collectors.toMap(row -> key(row.getBranchId(), row.getItemId()),
+                        InventoryTransactionRepository.NetMovement::getNetQuantity));
         Map<Long, Category> categories = scope.categories();
         String needle = clean(search);
 
@@ -282,11 +288,13 @@ public class ReportService {
                 continue;
             }
             Branch branch = scope.branches().get(inventory.getBranchId());
-            Movement movement = movements.getOrDefault(key(inventory.getBranchId(), item.getId()),
-                    new Movement());
-            rowsByKey.put(key(inventory.getBranchId(), item.getId()), stockRow(item, branch,
-                    categories.get(item.getCategoryId()), movement, inventory.getCurrentStock()));
-            totalValue = totalValue.add(inventory.getCurrentStock().multiply(inventory.getAvgCost()));
+            String stockKey = key(inventory.getBranchId(), item.getId());
+            Movement movement = movements.getOrDefault(stockKey, new Movement());
+            BigDecimal closingStock = inventory.getCurrentStock()
+                    .subtract(laterStockChanges.getOrDefault(stockKey, BigDecimal.ZERO));
+            rowsByKey.put(stockKey, stockRow(item, branch, categories.get(item.getCategoryId()),
+                    movement, closingStock));
+            totalValue = totalValue.add(closingStock.multiply(inventory.getAvgCost()));
         }
         for (Map.Entry<String, Movement> entry : movements.entrySet()) {
             if (rowsByKey.containsKey(entry.getKey())) {

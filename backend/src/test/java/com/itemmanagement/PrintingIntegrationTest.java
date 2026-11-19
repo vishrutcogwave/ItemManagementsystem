@@ -75,6 +75,17 @@ class PrintingIntegrationTest {
     // ---------- printer configuration ----------
 
     @Test
+    void missingAndInvalidBranchParametersReturnBadRequest() {
+        Session owner = registerStore();
+        JsonNode missing = call(HttpMethod.GET, "/api/printing/printers",
+                null, owner.token(), HttpStatus.BAD_REQUEST);
+        assertEquals("Missing required parameter: branchId", missing.get("message").asText());
+        JsonNode invalid = call(HttpMethod.GET, "/api/printing/printers?branchId=invalid",
+                null, owner.token(), HttpStatus.BAD_REQUEST);
+        assertEquals("Invalid value for parameter: branchId", invalid.get("message").asText());
+    }
+
+    @Test
     void printerConfigCrudValidatesAndIsStrictlyScoped() {
         Session storeA = registerStore();
         Session storeB = registerStore();

@@ -2,7 +2,8 @@ Item Management Print Bridge (Windows)
 ======================================
 
 This small tray application lets the store website print receipts silently on
-this PC's Windows default printer. It only listens on 127.0.0.1:17777 and every
+this PC's Windows default printer. It also supports silent A4, A5 and custom
+POS invoices through the Windows printer driver. It only listens on 127.0.0.1:17777 and every
 request must carry the bridge key shown by the tray app.
 
 Install
@@ -28,6 +29,11 @@ Printer behaviour
 - The bridge always uses the printer currently set as the Windows default.
 - Thermal style default printers (POS, 80C, XP, KOT, etc.) receive raw ESC/POS.
 - Other default printers receive the receipt through the normal Windows driver.
+- To print POS invoices silently, select the invoice paper in Print invoice
+  and click Save for silent printing. Use Print settings to change the saved
+  paper or restore the preview.
+- Load the selected paper in the Windows default printer. For custom paper,
+  configure the matching paper form in the Windows driver when required.
 - Print mode can be forced to "raw", "gdi" or "auto" in config.json.
 
 Configuration

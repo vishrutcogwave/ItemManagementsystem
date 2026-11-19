@@ -5,11 +5,14 @@ import { printDocument } from '../../lib/export'
 import {
   buildInvoiceHtml,
   invoicePreviewSize,
+  invoicePaperMm,
   type InvoicePaper,
+  type InvoicePrintSettings,
   type InvoicePaperKind,
   type InvoiceTemplateKind,
   type InvoiceStoreInfo,
 } from '../../lib/invoiceTemplate'
+import { detectPlatform } from '../../services/printerService'
 import { Button, Field, Input, Modal, Select } from '../ui'
 
 interface InvoicePrintPreviewProps {
@@ -18,6 +21,8 @@ interface InvoicePrintPreviewProps {
   store: InvoiceStoreInfo
   cancellationNumber?: string | null
   cancellationReason?: string | null
+  savedSilentSettings?: InvoicePrintSettings | null
+  onSaveSilentSettings?: (settings: InvoicePrintSettings | null) => void
   onClose: () => void
 }
 
@@ -29,41 +34,22 @@ const PAPER_OPTIONS: Array<{ value: InvoicePaperKind; label: string }> = [
   { value: 'CUSTOM', label: 'Custom size' },
 ]
 
-function paperMm(paper: InvoicePaper): { widthMm: number; heightMm: number | 'auto' } {
-  switch (paper.kind) {
-    case 'A4':
-      return paper.orientation === 'landscape' ? { widthMm: 297, heightMm: 210 } : { widthMm: 210, heightMm: 297 }
-    case 'A5':
-      return paper.orientation === 'landscape' ? { widthMm: 210, heightMm: 148 } : { widthMm: 148, heightMm: 210 }
-    case 'MM80':
-      return { widthMm: 80, heightMm: 'auto' }
-    case 'MM58':
-      return { widthMm: 58, heightMm: 'auto' }
-    case 'CUSTOM':
-    default: {
-      const widthMm = Math.min(600, Math.max(40, Number(paper.widthMm) || 210))
-      const heightMm = paper.heightMm === 'auto' || paper.heightMm === undefined
-        ? 'auto'
-        : Math.min(1200, Math.max(40, Number(paper.heightMm)))
-      return { widthMm, heightMm }
-    }
-  }
-}
-
 export function InvoicePrintPreview({
   open,
   sale,
   store,
   cancellationNumber,
   cancellationReason,
+  savedSilentSettings,
+  onSaveSilentSettings,
   onClose,
 }: InvoicePrintPreviewProps) {
-  const [template, setTemplate] = useState<InvoiceTemplateKind>('RETAIL')
-  const [paperKind, setPaperKind] = useState<InvoicePaperKind>('A4')
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait')
-  const [customWidth, setCustomWidth] = useState('210')
-  const [customHeight, setCustomHeight] = useState('297')
-  const [customRoll, setCustomRoll] = useState(false)
+  const [template, setTemplate] = useState<InvoiceTemplateKind>(savedSilentSettings?.template ?? 'RETAIL')
+  const [paperKind, setPaperKind] = useState<InvoicePaperKind>(savedSilentSettings?.paper.kind ?? 'A4')
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>(savedSilentSettings?.paper.orientation ?? 'portrait')
+  const [customWidth, setCustomWidth] = useState(String(savedSilentSettings?.paper.widthMm ?? 210))
+  const [customHeight, setCustomHeight] = useState(String(typeof savedSilentSettings?.paper.heightMm === 'number' ? savedSilentSettings.paper.heightMm : 297))
+  const [customRoll, setCustomRoll] = useState(savedSilentSettings?.paper.heightMm === 'auto')
   const [exporting, setExporting] = useState(false)
   const [measured, setMeasured] = useState<{ html: string; height: number } | null>(null)
   const frameRef = useRef<HTMLIFrameElement>(null)
@@ -100,7 +86,7 @@ export function InvoicePrintPreview({
     const onLoad = () => {
       const doc = frame.contentDocument
       if (!doc) return
-      const mmWidth = paperMm(paper).widthMm
+      const mmWidth = invoicePaperMm(paper).widthMm
       const contentPx = (mmWidth * 96) / 25.4
       const actual = doc.documentElement.scrollHeight
       const rendered = doc.body.scrollHeight
@@ -113,7 +99,7 @@ export function InvoicePrintPreview({
   const preview = invoicePreviewSize(paper)
   const frameWidth = preview.width
   const frameHeight = measured && measured.html === html ? measured.height : preview.height
-  const mm = paperMm(paper)
+  const mm = invoicePaperMm(paper)
 
   const handlePrint = () => {
     if (!html) return
@@ -241,6 +227,26 @@ export function InvoicePrintPreview({
               </Select>
             </Field>
           ) : null}
+          {onSaveSilentSettings && (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-600">
+                {detectPlatform() === 'WINDOWS'
+                  ? 'Silent printing uses the Windows default printer. Set that printer to match the selected paper.'
+                  : 'Silent printing on this device requires a paired Android print bridge and a matching 58 mm or 80 mm printer.'}
+              </p>
+              <Button variant="outline"
+                disabled={detectPlatform() !== 'WINDOWS' &&
+                  !(detectPlatform() === 'ANDROID' && (paperKind === 'MM58' || paperKind === 'MM80'))}
+                onClick={() => onSaveSilentSettings({ template, paper })}>
+                Save for silent printing
+              </Button>
+              {savedSilentSettings && (
+                <Button variant="ghost" onClick={() => onSaveSilentSettings(null)}>
+                  Turn off silent printing
+                </Button>
+              )}
+            </div>
+          )}
           <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
             {mm.widthMm} mm × {mm.heightMm === 'auto' ? 'roll' : `${mm.heightMm} mm`}
             {paperKind === 'MM58' ? ' · compact 32-column layout' : paperKind === 'MM80' ? ' · compact table layout' : ''}

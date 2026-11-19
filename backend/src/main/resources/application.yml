@@ -93,5 +93,9 @@ spring:
       maximum-pool-size: ${DB_POOL_SIZE:15}
 
 app:
+  jwt:
+    secret: ${JWT_SECRET}
+  auth:
+    cookie-secure: ${AUTH_COOKIE_SECURE:true}
   embedded-postgres:
     enabled: false
